@@ -13,10 +13,14 @@
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--txt); font:17px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
   main { max-width:640px; margin:0 auto; padding:20px 16px 40px; }
-  h1 { font-size:1.4rem; margin:0 0 16px; }
+  h1 { font-size:1.4rem; margin:0 0 14px; }
   label { display:block; font-weight:600; margin:14px 0 6px; }
   input, textarea, select { width:100%; font:inherit; color:inherit; background:var(--card); border:1px solid var(--bord); border-radius:10px; padding:12px; }
-  textarea { min-height:45vh; resize:vertical; }
+  textarea { min-height:40vh; resize:vertical; }
+  #f-contact textarea { min-height:20vh; }
+  .onglets { display:flex; gap:6px; background:var(--card); border:1px solid var(--bord); border-radius:12px; padding:4px; }
+  .onglets button { flex:1; background:transparent; color:var(--txt); padding:10px 6px; }
+  .onglets button.on { background:var(--acc); color:#fff; }
   .rangee { display:flex; gap:10px; margin-top:14px; }
   button { font:inherit; font-weight:600; border:0; border-radius:10px; padding:14px 16px; cursor:pointer; }
   .principal { background:var(--acc); color:#fff; flex:1; }
@@ -26,18 +30,56 @@
   .ok { color:var(--ok); } .err { color:var(--err); }
   details { margin-top:28px; background:var(--card); border:1px solid var(--bord); border-radius:10px; padding:12px 14px; }
   summary { cursor:pointer; font-weight:600; }
-  .aide { color:var(--muted); font-size:.9rem; }
+  .aide { color:var(--muted); font-size:.9rem; margin:6px 0 0; }
+  [hidden] { display:none !important; }
 </style>
 </head>
 <body>
 <main>
-  <h1>Envoyer une dictée au Séquenceur</h1>
+  <h1>Envoyer depuis le téléphone</h1>
 
-  <label for="titre">Titre</label>
-  <input id="titre" placeholder="Titre de l'article (facultatif)">
+  <div class="onglets" role="tablist">
+    <button type="button" data-type="article" class="on">📝 Article</button>
+    <button type="button" data-type="contact">👤 Contact</button>
+    <button type="button" data-type="mail">✉️ Mail</button>
+  </div>
 
-  <label for="texte">Texte</label>
-  <textarea id="texte" placeholder="Colle ici le texte dicté…"></textarea>
+  <!-- Article : arrive dans les Brouillons du Séquenceur -->
+  <section id="f-article">
+    <label for="a_titre">Titre</label>
+    <input id="a_titre" placeholder="Titre de l'article (facultatif)">
+    <label for="a_texte">Texte</label>
+    <textarea id="a_texte" placeholder="Colle ici le texte dicté…"></textarea>
+    <p class="aide">Arrive dans le Séquenceur : Brouillons, « 📥 Charger mes dictées ».</p>
+  </section>
+
+  <!-- Contact : arrive dans l'Excel Contact via le Hub -->
+  <section id="f-contact" hidden>
+    <label for="c_nom">Prénom et nom</label>
+    <input id="c_nom" placeholder="ex : Marie Dupont" autocomplete="off">
+    <label for="c_mail">Adresse mail</label>
+    <input id="c_mail" type="email" inputmode="email" autocapitalize="off" autocorrect="off" placeholder="marie.dupont@exemple.fr">
+    <label for="c_tel">Téléphone</label>
+    <input id="c_tel" type="tel" inputmode="tel" placeholder="facultatif">
+    <label for="c_structure">Structure</label>
+    <input id="c_structure" placeholder="ex : Lycée Jean Moulin, Médiathèque de… (facultatif)">
+    <label for="c_fonction">Fonction</label>
+    <input id="c_fonction" placeholder="ex : professeure documentaliste (facultatif)">
+    <label for="c_note">Note</label>
+    <textarea id="c_note" placeholder="Où vous vous êtes rencontrés, ce qu'il faut faire… (facultatif)"></textarea>
+    <p class="aide">Arrive dans le Hub, qui l'ajoute à tes contacts.</p>
+  </section>
+
+  <!-- Mail : arrive dans les brouillons de mail du Hub -->
+  <section id="f-mail" hidden>
+    <label for="m_objet">Objet</label>
+    <input id="m_objet" placeholder="Objet du mail (facultatif)">
+    <label for="m_pour">Pour qui ?</label>
+    <input id="m_pour" placeholder="Nom, structure ou adresse (facultatif, tu choisiras dans le Hub)">
+    <label for="m_texte">Texte du mail</label>
+    <textarea id="m_texte" placeholder="Colle ici le mail dicté…"></textarea>
+    <p class="aide">Arrive dans les ✍️ Brouillons du Hub : tu choisis le destinataire avec « ✉️ Envoyer à… ».</p>
+  </section>
 
   <div class="rangee">
     <button class="secondaire" id="coller" type="button">Coller</button>
@@ -62,6 +104,20 @@
   var $ = function (id) { return document.getElementById(id); };
   var CLES = ['compte', 'depot', 'cle'];
 
+  /* Champs de chaque type : id du champ → clé dans le fichier envoyé.
+     `texte` désigne la grande case où « Coller » écrit. `dossier` : où le
+     fichier arrive dans le dépôt (le Séquenceur lit a-importer/, le Hub
+     contacts/a-importer/ et mails/a-importer/). */
+  var TYPES = {
+    article: { dossier: 'a-importer', texte: 'a_texte', requis: 'a_texte', titre: 'a_titre',
+               champs: { a_titre: 'titre', a_texte: 'texte' } },
+    contact: { dossier: 'contacts/a-importer', texte: 'c_note', titre: 'c_nom',
+               champs: { c_nom: 'nom', c_mail: 'email', c_tel: 'tel', c_structure: 'structure', c_fonction: 'fonction', c_note: 'note' } },
+    mail:    { dossier: 'mails/a-importer', texte: 'm_texte', requis: 'm_texte', titre: 'm_objet',
+               champs: { m_objet: 'objet', m_pour: 'destinataire', m_texte: 'texte' } }
+  };
+  var type = 'article';
+
   function lire(k) { try { return localStorage.getItem('dictees_' + k) || ''; } catch (e) { return ''; } }
   function ecrire(k, v) { try { localStorage.setItem('dictees_' + k, v); } catch (e) {} }
   function statut(msg, classe) { var s = $('statut'); s.textContent = msg; s.className = classe || ''; }
@@ -69,12 +125,28 @@
   CLES.forEach(function (k) { var v = lire(k); if (v) $(k).value = v; });
   if (!lire('cle')) $('reglages').open = true;
 
-  // Brouillon gardé si on quitte la page avant d'envoyer
-  $('titre').value = lire('brouillon_titre');
-  $('texte').value = lire('brouillon_texte');
-  ['titre', 'texte'].forEach(function (k) {
-    $(k).addEventListener('input', function () { ecrire('brouillon_' + k, $(k).value); });
+  // Brouillon de chaque case gardé si on quitte la page avant d'envoyer
+  // (les anciennes clés de la première version sont reprises pour l'article)
+  if (!lire('brouillon_a_titre') && lire('brouillon_titre')) ecrire('brouillon_a_titre', lire('brouillon_titre'));
+  if (!lire('brouillon_a_texte') && lire('brouillon_texte')) ecrire('brouillon_a_texte', lire('brouillon_texte'));
+  Object.keys(TYPES).forEach(function (t) {
+    Object.keys(TYPES[t].champs).forEach(function (id) {
+      $(id).value = lire('brouillon_' + id);
+      $(id).addEventListener('input', function () { ecrire('brouillon_' + id, $(id).value); });
+    });
   });
+
+  function choisir(t) {
+    type = t;
+    document.querySelectorAll('.onglets button').forEach(function (b) { b.classList.toggle('on', b.dataset.type === t); });
+    Object.keys(TYPES).forEach(function (k) { $('f-' + k).hidden = k !== t; });
+    ecrire('type', t);
+    statut('');
+  }
+  document.querySelectorAll('.onglets button').forEach(function (b) {
+    b.addEventListener('click', function () { choisir(b.dataset.type); });
+  });
+  if (TYPES[lire('type')]) choisir(lire('type'));
 
   $('sauver').addEventListener('click', function () {
     CLES.forEach(function (k) { ecrire(k, $(k).value.trim()); });
@@ -83,10 +155,11 @@
   });
 
   $('coller').addEventListener('click', function () {
-    if (!navigator.clipboard || !navigator.clipboard.readText) { statut('Fais un appui long dans la case Texte puis « Coller ».', 'err'); return; }
+    var cible = TYPES[type].texte;
+    if (!navigator.clipboard || !navigator.clipboard.readText) { statut('Fais un appui long dans la case puis « Coller ».', 'err'); return; }
     navigator.clipboard.readText().then(function (t) {
-      $('texte').value = t; ecrire('brouillon_texte', t); statut('');
-    }).catch(function () { statut('Fais un appui long dans la case Texte puis « Coller ».', 'err'); });
+      $(cible).value = t; ecrire('brouillon_' + cible, t); statut('');
+    }).catch(function () { statut('Fais un appui long dans la case puis « Coller ».', 'err'); });
   });
 
   function base64Utf8(str) {
@@ -95,34 +168,39 @@
     return btoa(bin);
   }
 
-  function nomFichier(titre) {
+  function nomFichier(dossier, titre) {
     var d = new Date(), p = function (n) { return String(n).padStart(2, '0'); };
     var horodatage = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + '_' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
-    var slug = (titre || 'dictee').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'dictee';
-    return 'a-importer/' + horodatage + '_' + slug + '.json';
+    var slug = (titre || type).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || type;
+    return dossier + '/' + horodatage + '_' + slug + '.json';
   }
 
   $('envoyer').addEventListener('click', function () {
     var compte = lire('compte'), depot = lire('depot'), cle = lire('cle');
-    var titre = $('titre').value.trim(), texte = $('texte').value.trim();
+    var T = TYPES[type];
     if (!cle || !compte || !depot) { $('reglages').open = true; statut('Remplis d\'abord les réglages en bas de la page.', 'err'); return; }
-    if (!texte) { statut('Le texte est vide.', 'err'); return; }
 
-    var chemin = nomFichier(titre);
-    var contenu = JSON.stringify({ titre: titre, texte: texte, envoye_le: new Date().toISOString() }, null, 2);
+    var donnees = { type: type };
+    Object.keys(T.champs).forEach(function (id) { donnees[T.champs[id]] = $(id).value.trim(); });
+    if (T.requis && !donnees[T.champs[T.requis]]) { statut('Le texte est vide.', 'err'); return; }
+    if (type === 'contact' && !donnees.nom && !donnees.email) { statut('Indique au moins un nom ou une adresse mail.', 'err'); return; }
+    if (type === 'contact' && donnees.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(donnees.email)) { statut('L\'adresse mail semble incomplète.', 'err'); return; }
+    donnees.envoye_le = new Date().toISOString();
+
+    var chemin = nomFichier(T.dossier, $(T.titre).value.trim());
     $('envoyer').disabled = true;
     statut('Envoi en cours…');
 
+    var etiquette = { article: 'Dictée', contact: 'Contact', mail: 'Mail' }[type];
     fetch('https://api.github.com/repos/' + encodeURIComponent(compte) + '/' + encodeURIComponent(depot) + '/contents/' + chemin, {
       method: 'PUT',
       headers: { 'Authorization': 'Bearer ' + cle, 'Accept': 'application/vnd.github+json' },
-      body: JSON.stringify({ message: 'Dictée : ' + (titre || 'sans titre'), content: base64Utf8(contenu) })
+      body: JSON.stringify({ message: etiquette + ' : ' + ($(T.titre).value.trim() || 'sans titre'), content: base64Utf8(JSON.stringify(donnees, null, 2)) })
     }).then(function (r) {
       if (r.ok) {
-        $('titre').value = ''; $('texte').value = '';
-        ecrire('brouillon_titre', ''); ecrire('brouillon_texte', '');
-        statut('Envoyé ✓ Il t\'attend dans le Séquenceur.', 'ok');
+        Object.keys(T.champs).forEach(function (id) { $(id).value = ''; ecrire('brouillon_' + id, ''); });
+        statut({ article: 'Envoyé ✓ Il t\'attend dans le Séquenceur.', contact: 'Contact envoyé ✓ Il t\'attend dans le Hub.', mail: 'Mail envoyé ✓ Il t\'attend dans les brouillons du Hub.' }[type], 'ok');
       } else if (r.status === 401) {
         statut('Clé d\'accès refusée : vérifie-la dans les réglages.', 'err');
       } else if (r.status === 404 || r.status === 403) {
