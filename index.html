@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Mes dictées</title>
+<style>
+  :root { --bg:#f6f5f2; --card:#fff; --txt:#1d1d1f; --muted:#6b6b70; --acc:#2f6fed; --ok:#1f8a4c; --err:#c0392b; --bord:#dcdad5; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#16171a; --card:#212226; --txt:#f2f2f3; --muted:#a0a0a8; --acc:#5b8cff; --ok:#3fbf75; --err:#ff6b5b; --bord:#3a3b40; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt); font:17px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+  main { max-width:640px; margin:0 auto; padding:20px 16px 40px; }
+  h1 { font-size:1.4rem; margin:0 0 16px; }
+  label { display:block; font-weight:600; margin:14px 0 6px; }
+  input, textarea, select { width:100%; font:inherit; color:inherit; background:var(--card); border:1px solid var(--bord); border-radius:10px; padding:12px; }
+  textarea { min-height:45vh; resize:vertical; }
+  .rangee { display:flex; gap:10px; margin-top:14px; }
+  button { font:inherit; font-weight:600; border:0; border-radius:10px; padding:14px 16px; cursor:pointer; }
+  .principal { background:var(--acc); color:#fff; flex:1; }
+  .secondaire { background:var(--card); color:var(--txt); border:1px solid var(--bord); }
+  button:disabled { opacity:.5; }
+  #statut { margin-top:14px; min-height:1.5em; font-weight:600; }
+  .ok { color:var(--ok); } .err { color:var(--err); }
+  details { margin-top:28px; background:var(--card); border:1px solid var(--bord); border-radius:10px; padding:12px 14px; }
+  summary { cursor:pointer; font-weight:600; }
+  .aide { color:var(--muted); font-size:.9rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Envoyer une dictée au Séquenceur</h1>
+
+  <label for="titre">Titre</label>
+  <input id="titre" placeholder="Titre de l'article (facultatif)">
+
+  <label for="texte">Texte</label>
+  <textarea id="texte" placeholder="Colle ici le texte dicté…"></textarea>
+
+  <div class="rangee">
+    <button class="secondaire" id="coller" type="button">Coller</button>
+    <button class="principal" id="envoyer" type="button">Envoyer</button>
+  </div>
+  <div id="statut"></div>
+
+  <details id="reglages">
+    <summary>Réglages (une seule fois)</summary>
+    <label for="compte">Compte GitHub</label>
+    <input id="compte" value="antoninatger" autocapitalize="off" autocorrect="off">
+    <label for="depot">Dépôt privé</label>
+    <input id="depot" value="dictees" autocapitalize="off" autocorrect="off">
+    <label for="cle">Clé d'accès GitHub</label>
+    <input id="cle" type="password" placeholder="github_pat_…" autocapitalize="off" autocorrect="off">
+    <p class="aide">La clé reste enregistrée uniquement dans ce navigateur, sur ce téléphone. Elle n'est jamais publiée.</p>
+    <button class="secondaire" id="sauver" type="button">Enregistrer les réglages</button>
+  </details>
+</main>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var CLES = ['compte', 'depot', 'cle'];
+
+  function lire(k) { try { return localStorage.getItem('dictees_' + k) || ''; } catch (e) { return ''; } }
+  function ecrire(k, v) { try { localStorage.setItem('dictees_' + k, v); } catch (e) {} }
+  function statut(msg, classe) { var s = $('statut'); s.textContent = msg; s.className = classe || ''; }
+
+  CLES.forEach(function (k) { var v = lire(k); if (v) $(k).value = v; });
+  if (!lire('cle')) $('reglages').open = true;
+
+  // Brouillon gardé si on quitte la page avant d'envoyer
+  $('titre').value = lire('brouillon_titre');
+  $('texte').value = lire('brouillon_texte');
+  ['titre', 'texte'].forEach(function (k) {
+    $(k).addEventListener('input', function () { ecrire('brouillon_' + k, $(k).value); });
+  });
+
+  $('sauver').addEventListener('click', function () {
+    CLES.forEach(function (k) { ecrire(k, $(k).value.trim()); });
+    $('reglages').open = false;
+    statut('Réglages enregistrés.', 'ok');
+  });
+
+  $('coller').addEventListener('click', function () {
+    if (!navigator.clipboard || !navigator.clipboard.readText) { statut('Fais un appui long dans la case Texte puis « Coller ».', 'err'); return; }
+    navigator.clipboard.readText().then(function (t) {
+      $('texte').value = t; ecrire('brouillon_texte', t); statut('');
+    }).catch(function () { statut('Fais un appui long dans la case Texte puis « Coller ».', 'err'); });
+  });
+
+  function base64Utf8(str) {
+    var octets = new TextEncoder().encode(str), bin = '';
+    for (var i = 0; i < octets.length; i++) bin += String.fromCharCode(octets[i]);
+    return btoa(bin);
+  }
+
+  function nomFichier(titre) {
+    var d = new Date(), p = function (n) { return String(n).padStart(2, '0'); };
+    var horodatage = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + '_' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+    var slug = (titre || 'dictee').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'dictee';
+    return 'a-importer/' + horodatage + '_' + slug + '.json';
+  }
+
+  $('envoyer').addEventListener('click', function () {
+    var compte = lire('compte'), depot = lire('depot'), cle = lire('cle');
+    var titre = $('titre').value.trim(), texte = $('texte').value.trim();
+    if (!cle || !compte || !depot) { $('reglages').open = true; statut('Remplis d\'abord les réglages en bas de la page.', 'err'); return; }
+    if (!texte) { statut('Le texte est vide.', 'err'); return; }
+
+    var chemin = nomFichier(titre);
+    var contenu = JSON.stringify({ titre: titre, texte: texte, envoye_le: new Date().toISOString() }, null, 2);
+    $('envoyer').disabled = true;
+    statut('Envoi en cours…');
+
+    fetch('https://api.github.com/repos/' + encodeURIComponent(compte) + '/' + encodeURIComponent(depot) + '/contents/' + chemin, {
+      method: 'PUT',
+      headers: { 'Authorization': 'Bearer ' + cle, 'Accept': 'application/vnd.github+json' },
+      body: JSON.stringify({ message: 'Dictée : ' + (titre || 'sans titre'), content: base64Utf8(contenu) })
+    }).then(function (r) {
+      if (r.ok) {
+        $('titre').value = ''; $('texte').value = '';
+        ecrire('brouillon_titre', ''); ecrire('brouillon_texte', '');
+        statut('Envoyé ✓ Il t\'attend dans le Séquenceur.', 'ok');
+      } else if (r.status === 401) {
+        statut('Clé d\'accès refusée : vérifie-la dans les réglages.', 'err');
+      } else if (r.status === 404 || r.status === 403) {
+        statut('Dépôt introuvable ou clé sans droit d\'écriture sur ce dépôt.', 'err');
+      } else {
+        statut('Erreur GitHub (' + r.status + '). Ton texte est gardé, réessaie.', 'err');
+      }
+    }).catch(function () {
+      statut('Pas de connexion. Ton texte est gardé, réessaie plus tard.', 'err');
+    }).then(function () { $('envoyer').disabled = false; });
+  });
+})();
+</script>
+</body>
+</html>
