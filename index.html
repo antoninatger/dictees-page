@@ -32,6 +32,12 @@
   summary { cursor:pointer; font-weight:600; }
   .aide { color:var(--muted); font-size:.9rem; margin:6px 0 0; }
   [hidden] { display:none !important; }
+  input[type=file] { padding:10px; }
+  .vignettes { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+  .vignettes figure { position:relative; margin:0; }
+  .vignettes img { width:72px; height:72px; object-fit:cover; border-radius:8px; border:1px solid var(--bord); display:block; }
+  .vignettes button { position:absolute; top:-6px; right:-6px; width:24px; height:24px; padding:0; border-radius:50%;
+    background:var(--err); color:#fff; font-size:.8rem; line-height:24px; }
 </style>
 </head>
 <body>
@@ -51,6 +57,10 @@
     <input id="a_titre" placeholder="Titre de l'article (facultatif)">
     <label for="a_texte">Texte</label>
     <textarea id="a_texte" placeholder="Colle ici le texte dicté…"></textarea>
+    <label for="a_photos">Photos</label>
+    <input id="a_photos" type="file" accept="image/*" multiple>
+    <div id="a_vignettes" class="vignettes"></div>
+    <p class="aide">Jusqu'à 4 photos, la première sert de photo principale. Elles sont réduites avant l'envoi.</p>
     <p class="aide">Arrive dans le Séquenceur : Brouillons, « 📥 Charger mes dictées ».</p>
   </section>
 
@@ -217,6 +227,54 @@
     return dossier + '/' + horodatage + '_' + slug + '.json';
   }
 
+  /* Photos de l'article : réduites (2000 px de côté au plus, JPEG) pour que
+     l'envoi passe même en 4G, puis déposées dans a-importer/photos/ avant
+     le texte. Le Séquenceur les rattache au brouillon (4 au plus). */
+  var PHOTOS_MAX = 4, photos = [];   // [{ blob, url }]
+  function vignettes() {
+    $('a_vignettes').innerHTML = '';
+    photos.forEach(function (p, i) {
+      var f = document.createElement('figure');
+      f.innerHTML = '<img alt=""><button type="button" aria-label="Retirer la photo">✕</button>';
+      f.querySelector('img').src = p.url;
+      f.querySelector('button').addEventListener('click', function () { URL.revokeObjectURL(p.url); photos.splice(i, 1); vignettes(); });
+      $('a_vignettes').appendChild(f);
+    });
+  }
+  function reduire(fichier) {
+    return new Promise(function (ok, ko) {
+      var img = new Image(), url = URL.createObjectURL(fichier);
+      img.onload = function () {
+        var k = Math.min(1, 2000 / Math.max(img.naturalWidth, img.naturalHeight));
+        var c = document.createElement('canvas');
+        c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        c.toBlob(function (b) { b ? ok(b) : ko(new Error('photo')); }, 'image/jpeg', 0.85);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); ko(new Error('photo illisible')); };
+      img.src = url;
+    });
+  }
+  $('a_photos').addEventListener('change', function () {
+    var fichiers = Array.prototype.slice.call(this.files || []);
+    this.value = '';
+    if (photos.length + fichiers.length > PHOTOS_MAX) statut('4 photos au plus : les suivantes sont ignorées.', 'err');
+    fichiers.slice(0, PHOTOS_MAX - photos.length).reduce(function (suite, f) {
+      return suite.then(function () { return reduire(f); }).then(function (b) {
+        photos.push({ blob: b, url: URL.createObjectURL(b) }); vignettes();
+      }).catch(function () { statut('Une photo n\'a pas pu être lue.', 'err'); });
+    }, Promise.resolve());
+  });
+  function base64Blob(blob) {
+    return new Promise(function (ok, ko) {
+      var r = new FileReader();
+      r.onload = function () { ok(String(r.result).split(',')[1]); };
+      r.onerror = ko;
+      r.readAsDataURL(blob);
+    });
+  }
+
   $('envoyer').addEventListener('click', function () {
     var compte = lire('compte'), depot = lire('depot'), cle = lire('cle');
     var T = TYPES[type];
@@ -236,15 +294,40 @@
     statut('Envoi en cours…');
 
     var etiquette = { article: 'Dictée', contact: 'Contact', mail: 'Mail', tache: 'Tâche' }[type];
-    fetch('https://api.github.com/repos/' + encodeURIComponent(compte) + '/' + encodeURIComponent(depot) + '/contents/' + chemin, {
-      method: 'PUT',
-      headers: { 'Authorization': 'Bearer ' + cle, 'Accept': 'application/vnd.github+json' },
-      body: JSON.stringify({ message: etiquette + ' : ' + ($(T.titre).value.trim() || 'sans titre'), content: base64Utf8(JSON.stringify(donnees, null, 2)) })
+    var message = etiquette + ' : ' + ($(T.titre).value.trim() || 'sans titre');
+    var deposer = function (cheminFichier, contenu64) {
+      return fetch('https://api.github.com/repos/' + encodeURIComponent(compte) + '/' + encodeURIComponent(depot) + '/contents/' + cheminFichier, {
+        method: 'PUT',
+        headers: { 'Authorization': 'Bearer ' + cle, 'Accept': 'application/vnd.github+json' },
+        body: JSON.stringify({ message: message, content: contenu64 })
+      });
+    };
+    // Les photos partent d'abord : le texte n'arrive (et n'est importé)
+    // qu'une fois toutes ses photos déposées.
+    var aEnvoyer = type === 'article' ? photos.slice() : [];
+    var base = chemin.replace(/^a-importer\//, '').replace(/\.json$/, '');
+    donnees.photos = [];
+    var suite = Promise.resolve({ ok: true });
+    aEnvoyer.forEach(function (p, i) {
+      suite = suite.then(function (r) {
+        if (!r.ok) return r;
+        statut('Envoi de la photo ' + (i + 1) + ' sur ' + aEnvoyer.length + '…');
+        var cp = 'a-importer/photos/' + base + '_' + (i + 1) + '.jpg';
+        donnees.photos.push(cp);
+        return base64Blob(p.blob).then(function (b64) { return deposer(cp, b64); });
+      });
+    });
+    suite.then(function (r) {
+      if (!r.ok) return r;
+      if (aEnvoyer.length) statut('Envoi du texte…');
+      if (!donnees.photos.length) delete donnees.photos;
+      return deposer(chemin, base64Utf8(JSON.stringify(donnees, null, 2)));
     }).then(function (r) {
       if (r.ok) {
         Object.keys(T.champs).forEach(function (id) { remplir(id, ''); ecrire('brouillon_' + id, ''); });
         majDate();
-        statut({ article: 'Envoyé ✓ Il t\'attend dans le Séquenceur.', contact: 'Contact envoyé ✓ Il t\'attend dans le Hub.', mail: 'Mail envoyé ✓ Il t\'attend dans les brouillons du Hub.', tache: 'Tâche envoyée ✓ Elle arrivera dans ton app Tâches.' }[type], 'ok');
+        if (aEnvoyer.length) { photos.forEach(function (p) { URL.revokeObjectURL(p.url); }); photos = []; vignettes(); }
+        statut({ article: (aEnvoyer.length ? 'Envoyé avec ' + aEnvoyer.length + ' photo' + (aEnvoyer.length > 1 ? 's' : '') + ' ✓ Il t\'attend dans le Séquenceur.' : 'Envoyé ✓ Il t\'attend dans le Séquenceur.'), contact: 'Contact envoyé ✓ Il t\'attend dans le Hub.', mail: 'Mail envoyé ✓ Il t\'attend dans les brouillons du Hub.', tache: 'Tâche envoyée ✓ Elle arrivera dans ton app Tâches.' }[type], 'ok');
       } else if (r.status === 401) {
         statut('Clé d\'accès refusée : vérifie-la dans les réglages.', 'err');
       } else if (r.status === 404 || r.status === 403) {
