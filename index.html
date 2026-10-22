@@ -17,9 +17,9 @@
   label { display:block; font-weight:600; margin:14px 0 6px; }
   input, textarea, select { width:100%; font:inherit; color:inherit; background:var(--card); border:1px solid var(--bord); border-radius:10px; padding:12px; }
   textarea { min-height:40vh; resize:vertical; }
-  #f-contact textarea { min-height:20vh; }
+  #f-contact textarea, #f-tache textarea { min-height:20vh; }
   .onglets { display:flex; gap:6px; background:var(--card); border:1px solid var(--bord); border-radius:12px; padding:4px; }
-  .onglets button { flex:1; background:transparent; color:var(--txt); padding:10px 6px; }
+  .onglets button { flex:1; background:transparent; color:var(--txt); padding:10px 4px; font-size:.92rem; }
   .onglets button.on { background:var(--acc); color:#fff; }
   .rangee { display:flex; gap:10px; margin-top:14px; }
   button { font:inherit; font-weight:600; border:0; border-radius:10px; padding:14px 16px; cursor:pointer; }
@@ -42,6 +42,7 @@
     <button type="button" data-type="article" class="on">📝 Article</button>
     <button type="button" data-type="contact">👤 Contact</button>
     <button type="button" data-type="mail">✉️ Mail</button>
+    <button type="button" data-type="tache">✅ Tâche</button>
   </div>
 
   <!-- Article : arrive dans les Brouillons du Séquenceur -->
@@ -82,6 +83,34 @@
     <p class="aide">Arrive dans les ✍️ Brouillons du Hub : tu choisis le destinataire avec « ✉️ Envoyer à… ».</p>
   </section>
 
+  <!-- Tâche : arrive dans l'app Tâches via le Hub -->
+  <section id="f-tache" hidden>
+    <label for="t_titre">Tâche</label>
+    <input id="t_titre" placeholder="ex : Rappeler le lycée Jean Moulin">
+    <label for="t_quand">Quand ?</label>
+    <select id="t_quand">
+      <option value="none">Pas de date</option>
+      <option value="today">Aujourd'hui</option>
+      <option value="tomorrow">Demain</option>
+      <option value="nextworkday">Prochain jour ouvré</option>
+      <option value="date">À une date…</option>
+    </select>
+    <div id="t_date_bloc" hidden>
+      <label for="t_date">Date</label>
+      <input id="t_date" type="date">
+    </div>
+    <label for="t_prio">Priorité</label>
+    <select id="t_prio">
+      <option value="normal">Normale</option>
+      <option value="low">Faible</option>
+      <option value="high">Haute</option>
+      <option value="critical">Critique</option>
+    </select>
+    <label for="t_notes">Note</label>
+    <textarea id="t_notes" placeholder="Détails (facultatif)"></textarea>
+    <p class="aide">Arrive dans ton app Tâches dès que le Hub est ouvert.</p>
+  </section>
+
   <div class="rangee">
     <button class="secondaire" id="coller" type="button">Coller</button>
     <button class="principal" id="envoyer" type="button">Envoyer</button>
@@ -108,14 +137,16 @@
   /* Champs de chaque type : id du champ → clé dans le fichier envoyé.
      `texte` désigne la grande case où « Coller » écrit. `dossier` : où le
      fichier arrive dans le dépôt (le Séquenceur lit a-importer/, le Hub
-     contacts/a-importer/ et mails/a-importer/). */
+     contacts/a-importer/, mails/a-importer/ et taches/a-importer/). */
   var TYPES = {
     article: { dossier: 'a-importer', texte: 'a_texte', requis: 'a_texte', titre: 'a_titre',
                champs: { a_titre: 'titre', a_texte: 'texte' } },
     contact: { dossier: 'contacts/a-importer', texte: 'c_note', titre: 'c_nom',
                champs: { c_nom: 'nom', c_mail: 'email', c_tel: 'tel', c_structure: 'structure', c_fonction: 'fonction', c_note: 'note' } },
     mail:    { dossier: 'mails/a-importer', texte: 'm_texte', requis: 'm_texte', titre: 'm_objet',
-               champs: { m_objet: 'objet', m_pour: 'destinataire', m_texte: 'texte' } }
+               champs: { m_objet: 'objet', m_pour: 'destinataire', m_texte: 'texte' } },
+    tache:   { dossier: 'taches/a-importer', texte: 't_notes', requis: 't_titre', titre: 't_titre',
+               champs: { t_titre: 'titre', t_quand: 'horizon', t_date: 'dateStart', t_prio: 'priority', t_notes: 'notes' } }
   };
   var type = 'article';
 
@@ -130,12 +161,21 @@
   // (les anciennes clés de la première version sont reprises pour l'article)
   if (!lire('brouillon_a_titre') && lire('brouillon_titre')) ecrire('brouillon_a_titre', lire('brouillon_titre'));
   if (!lire('brouillon_a_texte') && lire('brouillon_texte')) ecrire('brouillon_a_texte', lire('brouillon_texte'));
+  // Une liste déroulante vidée reprend son premier choix (« Pas de date », « Normale »)
+  function remplir(id, v) {
+    if ($(id).tagName === 'SELECT') { if (v) $(id).value = v; else $(id).selectedIndex = 0; }
+    else $(id).value = v;
+  }
+  function majDate() { $('t_date_bloc').hidden = $('t_quand').value !== 'date'; }
   Object.keys(TYPES).forEach(function (t) {
     Object.keys(TYPES[t].champs).forEach(function (id) {
-      $(id).value = lire('brouillon_' + id);
-      $(id).addEventListener('input', function () { ecrire('brouillon_' + id, $(id).value); });
+      remplir(id, lire('brouillon_' + id));
+      ['input', 'change'].forEach(function (ev) {
+        $(id).addEventListener(ev, function () { ecrire('brouillon_' + id, $(id).value); if (id === 't_quand') majDate(); });
+      });
     });
   });
+  majDate();
 
   function choisir(t) {
     type = t;
@@ -184,7 +224,9 @@
 
     var donnees = { type: type };
     Object.keys(T.champs).forEach(function (id) { donnees[T.champs[id]] = $(id).value.trim(); });
-    if (T.requis && !donnees[T.champs[T.requis]]) { statut('Le texte est vide.', 'err'); return; }
+    if (T.requis && !donnees[T.champs[T.requis]]) { statut(type === 'tache' ? 'Écris d\'abord la tâche.' : 'Le texte est vide.', 'err'); return; }
+    if (type === 'tache' && donnees.horizon === 'date' && !donnees.dateStart) { statut('Choisis la date.', 'err'); return; }
+    if (type === 'tache' && donnees.horizon !== 'date') donnees.dateStart = '';
     if (type === 'contact' && !donnees.nom && !donnees.email) { statut('Indique au moins un nom ou une adresse mail.', 'err'); return; }
     if (type === 'contact' && donnees.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(donnees.email)) { statut('L\'adresse mail semble incomplète.', 'err'); return; }
     donnees.envoye_le = new Date().toISOString();
@@ -193,15 +235,16 @@
     $('envoyer').disabled = true;
     statut('Envoi en cours…');
 
-    var etiquette = { article: 'Dictée', contact: 'Contact', mail: 'Mail' }[type];
+    var etiquette = { article: 'Dictée', contact: 'Contact', mail: 'Mail', tache: 'Tâche' }[type];
     fetch('https://api.github.com/repos/' + encodeURIComponent(compte) + '/' + encodeURIComponent(depot) + '/contents/' + chemin, {
       method: 'PUT',
       headers: { 'Authorization': 'Bearer ' + cle, 'Accept': 'application/vnd.github+json' },
       body: JSON.stringify({ message: etiquette + ' : ' + ($(T.titre).value.trim() || 'sans titre'), content: base64Utf8(JSON.stringify(donnees, null, 2)) })
     }).then(function (r) {
       if (r.ok) {
-        Object.keys(T.champs).forEach(function (id) { $(id).value = ''; ecrire('brouillon_' + id, ''); });
-        statut({ article: 'Envoyé ✓ Il t\'attend dans le Séquenceur.', contact: 'Contact envoyé ✓ Il t\'attend dans le Hub.', mail: 'Mail envoyé ✓ Il t\'attend dans les brouillons du Hub.' }[type], 'ok');
+        Object.keys(T.champs).forEach(function (id) { remplir(id, ''); ecrire('brouillon_' + id, ''); });
+        majDate();
+        statut({ article: 'Envoyé ✓ Il t\'attend dans le Séquenceur.', contact: 'Contact envoyé ✓ Il t\'attend dans le Hub.', mail: 'Mail envoyé ✓ Il t\'attend dans les brouillons du Hub.', tache: 'Tâche envoyée ✓ Elle arrivera dans ton app Tâches.' }[type], 'ok');
       } else if (r.status === 401) {
         statut('Clé d\'accès refusée : vérifie-la dans les réglages.', 'err');
       } else if (r.status === 404 || r.status === 403) {
