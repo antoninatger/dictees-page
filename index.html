@@ -33,6 +33,10 @@
   .aide { color:var(--muted); font-size:.9rem; margin:6px 0 0; }
   [hidden] { display:none !important; }
   input[type=file] { padding:10px; }
+  .choix { display:flex; flex-direction:column; gap:6px; }
+  .choix button { text-align:left; background:var(--card); color:var(--txt); border:1px solid var(--bord); padding:12px 14px; font-weight:600; }
+  .choix button small { display:block; font-weight:400; color:var(--muted); }
+  .choix button.on { border-color:var(--acc); box-shadow:inset 0 0 0 2px var(--acc); }
   .vignettes { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
   .vignettes figure { position:relative; margin:0; }
   .vignettes img { width:72px; height:72px; object-fit:cover; border-radius:8px; border:1px solid var(--bord); display:block; }
@@ -125,7 +129,9 @@
   <!-- Intervention scolaire : les photos arrivent dans le dossier Photos de
        l'intervention, via le Hub -->
   <section id="f-intervention" hidden>
-    <label for="i_structure">Structure de l'intervention</label>
+    <label>Intervention</label>
+    <div id="i_choix" class="choix"></div>
+    <label for="i_structure" id="i_autre">Ou une autre structure</label>
     <input id="i_structure" list="i_liste" placeholder="ex : Lycée Jean Moulin" autocomplete="off">
     <datalist id="i_liste"></datalist>
     <p class="aide" id="i_aide">Écris-la comme sur sa fiche du Hub.</p>
@@ -312,9 +318,38 @@
       interventions.forEach(function (it) {
         var o = document.createElement('option'); o.value = libelle(it); $('i_liste').appendChild(o);
       });
-      if (interventions.length) $('i_aide').textContent = 'Touche la case pour choisir parmi tes interventions du Hub, ou écris le nom de la structure.';
+      if (interventions.length) $('i_aide').textContent = 'Touche la case pour voir toutes tes interventions récentes, ou écris le nom de la structure.';
+      boutonsInterventions();
     }).catch(function () { interventions = null; });
   }
+  /* Les 6 dernières interventions (déjà faites, la plus récente en haut) :
+     un toucher suffit pour y rattacher les photos. */
+  function boutonsInterventions() {
+    var auj = new Date(), p = function (n) { return String(n).padStart(2, '0'); };
+    var jour = auj.getFullYear() + '-' + p(auj.getMonth() + 1) + '-' + p(auj.getDate());
+    var dernieres = (interventions || []).filter(function (it) { return it.date && it.date <= jour; })
+      .sort(function (a, b) { return a.date < b.date ? 1 : -1; }).slice(0, 6);
+    $('i_choix').innerHTML = '';
+    dernieres.forEach(function (it) {
+      var b = document.createElement('button'), d = it.date.split('-').reverse().join('/');
+      b.type = 'button';
+      b.innerHTML = '<span></span><small></small>';
+      b.querySelector('span').textContent = it.structure;
+      b.querySelector('small').textContent = (it.ville ? it.ville + ' · ' : '') + d;
+      b.dataset.valeur = libelle(it);
+      b.addEventListener('click', function () {
+        $('i_structure').value = b.dataset.valeur; ecrire('brouillon_i_structure', b.dataset.valeur); surligner();
+      });
+      $('i_choix').appendChild(b);
+    });
+    $('i_choix').hidden = !dernieres.length;
+    $('i_autre').textContent = dernieres.length ? 'Ou une autre structure' : 'Structure de l\'intervention';
+    surligner();
+  }
+  function surligner() {
+    document.querySelectorAll('#i_choix button').forEach(function (b) { b.classList.toggle('on', b.dataset.valeur === $('i_structure').value); });
+  }
+  $('i_structure').addEventListener('input', surligner);
   function interventionChoisie(texte) {
     for (var i = 0; i < (interventions || []).length; i++) if (libelle(interventions[i]) === texte) return interventions[i];
     return null;
