@@ -17,7 +17,7 @@
   label { display:block; font-weight:600; margin:14px 0 6px; }
   input, textarea, select { width:100%; font:inherit; color:inherit; background:var(--card); border:1px solid var(--bord); border-radius:10px; padding:12px; }
   textarea { min-height:40vh; resize:vertical; }
-  #f-contact textarea, #f-tache textarea, #f-intervention textarea { min-height:12vh; }
+  #f-contact textarea, #f-tache textarea { min-height:20vh; }
   .onglets { display:flex; gap:6px; background:var(--card); border:1px solid var(--bord); border-radius:12px; padding:4px; }
   .onglets button { flex:1; background:transparent; color:var(--txt); padding:10px 2px; font-size:.85rem; white-space:nowrap; }
   .onglets button.on { background:var(--acc); color:#fff; }
@@ -133,8 +133,6 @@
     <input id="i_photos" type="file" accept="image/*" multiple>
     <div id="i_vignettes" class="vignettes"></div>
     <p class="aide">Jusqu'à 30 photos à la fois. Elles sont réduites avant l'envoi.</p>
-    <label for="i_note">Note</label>
-    <textarea id="i_note" placeholder="Classe, contexte… (facultatif)"></textarea>
     <p class="aide">Arrive dans le Hub, dans le dossier Photos de l'intervention.</p>
   </section>
 
@@ -175,8 +173,8 @@
                champs: { m_objet: 'objet', m_pour: 'destinataire', m_texte: 'texte' } },
     tache:   { dossier: 'taches/a-importer', texte: 't_notes', requis: 't_titre', titre: 't_titre',
                champs: { t_titre: 'titre', t_quand: 'horizon', t_date: 'dateStart', t_prio: 'priority', t_notes: 'notes' } },
-    intervention: { dossier: 'interventions/a-importer', texte: 'i_note', requis: 'i_structure', titre: 'i_structure',
-               photos: 'i', photosMax: 30, champs: { i_structure: 'structure', i_note: 'note' } }
+    intervention: { dossier: 'interventions/a-importer', texte: 'i_structure', requis: 'i_structure', titre: 'i_structure',
+               photos: 'i', photosMax: 30, champs: { i_structure: 'structure' } }
   };
   var type = 'article';
 
