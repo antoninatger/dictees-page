@@ -19,7 +19,7 @@
   textarea { min-height:40vh; resize:vertical; }
   #f-contact textarea, #f-tache textarea { min-height:20vh; }
   .onglets { display:flex; gap:6px; background:var(--card); border:1px solid var(--bord); border-radius:12px; padding:4px; }
-  .onglets button { flex:1; background:transparent; color:var(--txt); padding:10px 4px; font-size:.92rem; }
+  .onglets button { flex:1; background:transparent; color:var(--txt); padding:10px 2px; font-size:.85rem; white-space:nowrap; }
   .onglets button.on { background:var(--acc); color:#fff; }
   .rangee { display:flex; gap:10px; margin-top:14px; }
   button { font:inherit; font-weight:600; border:0; border-radius:10px; padding:14px 16px; cursor:pointer; }
@@ -49,6 +49,7 @@
     <button type="button" data-type="contact">👤 Contact</button>
     <button type="button" data-type="mail">✉️ Mail</button>
     <button type="button" data-type="tache">✅ Tâche</button>
+    <button type="button" data-type="intervention">🏫 Interv.</button>
   </div>
 
   <!-- Article : arrive dans les Brouillons du Séquenceur -->
@@ -121,6 +122,20 @@
     <p class="aide">Arrive dans ton app Tâches dès que le Hub est ouvert.</p>
   </section>
 
+  <!-- Intervention scolaire : les photos arrivent dans le dossier Photos de
+       l'intervention, via le Hub -->
+  <section id="f-intervention" hidden>
+    <label for="i_structure">Structure de l'intervention</label>
+    <input id="i_structure" list="i_liste" placeholder="ex : Lycée Jean Moulin" autocomplete="off">
+    <datalist id="i_liste"></datalist>
+    <p class="aide" id="i_aide">Écris-la comme sur sa fiche du Hub.</p>
+    <label for="i_photos">Photos</label>
+    <input id="i_photos" type="file" accept="image/*" multiple>
+    <div id="i_vignettes" class="vignettes"></div>
+    <p class="aide">Jusqu'à 30 photos à la fois. Elles sont réduites avant l'envoi.</p>
+    <p class="aide">Arrive dans le Hub, dans le dossier Photos de l'intervention.</p>
+  </section>
+
   <div class="rangee">
     <button class="secondaire" id="coller" type="button">Coller</button>
     <button class="principal" id="envoyer" type="button">Envoyer</button>
@@ -147,7 +162,8 @@
   /* Champs de chaque type : id du champ → clé dans le fichier envoyé.
      `texte` désigne la grande case où « Coller » écrit. `dossier` : où le
      fichier arrive dans le dépôt (le Séquenceur lit a-importer/, le Hub
-     contacts/a-importer/, mails/a-importer/ et taches/a-importer/). */
+     contacts/a-importer/, mails/a-importer/, taches/a-importer/ et
+     interventions/a-importer/). */
   var TYPES = {
     article: { dossier: 'a-importer', texte: 'a_texte', requis: 'a_texte', titre: 'a_titre',
                champs: { a_titre: 'titre', a_texte: 'texte' } },
@@ -156,7 +172,9 @@
     mail:    { dossier: 'mails/a-importer', texte: 'm_texte', requis: 'm_texte', titre: 'm_objet',
                champs: { m_objet: 'objet', m_pour: 'destinataire', m_texte: 'texte' } },
     tache:   { dossier: 'taches/a-importer', texte: 't_notes', requis: 't_titre', titre: 't_titre',
-               champs: { t_titre: 'titre', t_quand: 'horizon', t_date: 'dateStart', t_prio: 'priority', t_notes: 'notes' } }
+               champs: { t_titre: 'titre', t_quand: 'horizon', t_date: 'dateStart', t_prio: 'priority', t_notes: 'notes' } },
+    intervention: { dossier: 'interventions/a-importer', texte: 'i_structure', requis: 'i_structure', titre: 'i_structure',
+               photos: 'i', photosMax: 30, champs: { i_structure: 'structure' } }
   };
   var type = 'article';
 
@@ -193,6 +211,7 @@
     Object.keys(TYPES).forEach(function (k) { $('f-' + k).hidden = k !== t; });
     ecrire('type', t);
     statut('');
+    if (t === 'intervention') chargerInterventions();
   }
   document.querySelectorAll('.onglets button').forEach(function (b) {
     b.addEventListener('click', function () { choisir(b.dataset.type); });
@@ -230,15 +249,19 @@
   /* Photos de l'article : réduites (2000 px de côté au plus, JPEG) pour que
      l'envoi passe même en 4G, puis déposées dans a-importer/photos/ avant
      le texte. Le Séquenceur les rattache au brouillon (4 au plus). */
-  var PHOTOS_MAX = 4, photos = [];   // [{ blob, url }]
-  function vignettes() {
-    $('a_vignettes').innerHTML = '';
+  /* Une liste de photos par onglet qui en a (article : préfixe « a »,
+     intervention : « i ») : [{ blob, url }] */
+  TYPES.article.photos = 'a'; TYPES.article.photosMax = 4;
+  var listes = { a: [], i: [] };
+  function vignettes(pre) {
+    var photos = listes[pre];
+    $(pre + '_vignettes').innerHTML = '';
     photos.forEach(function (p, i) {
       var f = document.createElement('figure');
       f.innerHTML = '<img alt=""><button type="button" aria-label="Retirer la photo">✕</button>';
       f.querySelector('img').src = p.url;
-      f.querySelector('button').addEventListener('click', function () { URL.revokeObjectURL(p.url); photos.splice(i, 1); vignettes(); });
-      $('a_vignettes').appendChild(f);
+      f.querySelector('button').addEventListener('click', function () { URL.revokeObjectURL(p.url); photos.splice(i, 1); vignettes(pre); });
+      $(pre + '_vignettes').appendChild(f);
     });
   }
   function reduire(fichier) {
@@ -256,16 +279,46 @@
       img.src = url;
     });
   }
-  $('a_photos').addEventListener('change', function () {
-    var fichiers = Array.prototype.slice.call(this.files || []);
-    this.value = '';
-    if (photos.length + fichiers.length > PHOTOS_MAX) statut('4 photos au plus : les suivantes sont ignorées.', 'err');
-    fichiers.slice(0, PHOTOS_MAX - photos.length).reduce(function (suite, f) {
-      return suite.then(function () { return reduire(f); }).then(function (b) {
-        photos.push({ blob: b, url: URL.createObjectURL(b) }); vignettes();
-      }).catch(function () { statut('Une photo n\'a pas pu être lue.', 'err'); });
-    }, Promise.resolve());
+  ['article', 'intervention'].forEach(function (t) {
+    var pre = TYPES[t].photos, max = TYPES[t].photosMax;
+    $(pre + '_photos').addEventListener('change', function () {
+      var fichiers = Array.prototype.slice.call(this.files || []), photos = listes[pre];
+      this.value = '';
+      if (photos.length + fichiers.length > max) statut(max + ' photos au plus : les suivantes sont ignorées.', 'err');
+      fichiers.slice(0, max - photos.length).reduce(function (suite, f) {
+        return suite.then(function () { return reduire(f); }).then(function (b) {
+          photos.push({ blob: b, url: URL.createObjectURL(b) }); vignettes(pre);
+        }).catch(function () { statut('Une photo n\'a pas pu être lue.', 'err'); });
+      }, Promise.resolve());
+    });
   });
+
+  /* Liste des interventions publiée par le Hub (interventions/liste.json :
+     [{ id, structure, date, ville }]), proposée sous la case Structure.
+     Sans elle, on écrit la structure à la main et le Hub la retrouve. */
+  var interventions = null;
+  function libelle(it) {
+    var d = it.date ? it.date.split('-').reverse().join('/') : '';
+    return it.structure + (it.ville ? ' (' + it.ville + ')' : '') + (d ? ' — ' + d : '');
+  }
+  function chargerInterventions() {
+    if (interventions || !lire('cle')) return;
+    interventions = [];
+    fetch('https://api.github.com/repos/' + encodeURIComponent(lire('compte')) + '/' + encodeURIComponent(lire('depot')) + '/contents/interventions/liste.json', {
+      headers: { 'Authorization': 'Bearer ' + lire('cle'), 'Accept': 'application/vnd.github.raw' }, cache: 'no-store'
+    }).then(function (r) { return r.ok ? r.json() : []; }).then(function (liste) {
+      interventions = Array.isArray(liste) ? liste.filter(function (it) { return it && it.structure; }) : [];
+      $('i_liste').innerHTML = '';
+      interventions.forEach(function (it) {
+        var o = document.createElement('option'); o.value = libelle(it); $('i_liste').appendChild(o);
+      });
+      if (interventions.length) $('i_aide').textContent = 'Touche la case pour choisir parmi tes interventions du Hub, ou écris le nom de la structure.';
+    }).catch(function () { interventions = null; });
+  }
+  function interventionChoisie(texte) {
+    for (var i = 0; i < (interventions || []).length; i++) if (libelle(interventions[i]) === texte) return interventions[i];
+    return null;
+  }
   function base64Blob(blob) {
     return new Promise(function (ok, ko) {
       var r = new FileReader();
@@ -287,13 +340,18 @@
     if (type === 'tache' && donnees.horizon !== 'date') donnees.dateStart = '';
     if (type === 'contact' && !donnees.nom && !donnees.email) { statut('Indique au moins un nom ou une adresse mail.', 'err'); return; }
     if (type === 'contact' && donnees.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(donnees.email)) { statut('L\'adresse mail semble incomplète.', 'err'); return; }
+    if (type === 'intervention' && !listes.i.length) { statut('Choisis d\'abord les photos.', 'err'); return; }
+    if (type === 'intervention') {
+      var it = interventionChoisie(donnees.structure);
+      if (it) { donnees.structure = it.structure; donnees.intervention_id = it.id; if (it.date) donnees.date = it.date; }
+    }
     donnees.envoye_le = new Date().toISOString();
 
-    var chemin = nomFichier(T.dossier, $(T.titre).value.trim());
+    var chemin = nomFichier(T.dossier, type === 'intervention' ? donnees.structure : $(T.titre).value.trim());
     $('envoyer').disabled = true;
     statut('Envoi en cours…');
 
-    var etiquette = { article: 'Dictée', contact: 'Contact', mail: 'Mail', tache: 'Tâche' }[type];
+    var etiquette = { article: 'Dictée', contact: 'Contact', mail: 'Mail', tache: 'Tâche', intervention: 'Photos d\'intervention' }[type];
     var message = etiquette + ' : ' + ($(T.titre).value.trim() || 'sans titre');
     var deposer = function (cheminFichier, contenu64) {
       return fetch('https://api.github.com/repos/' + encodeURIComponent(compte) + '/' + encodeURIComponent(depot) + '/contents/' + cheminFichier, {
@@ -304,15 +362,15 @@
     };
     // Les photos partent d'abord : le texte n'arrive (et n'est importé)
     // qu'une fois toutes ses photos déposées.
-    var aEnvoyer = type === 'article' ? photos.slice() : [];
-    var base = chemin.replace(/^a-importer\//, '').replace(/\.json$/, '');
+    var pre = T.photos, aEnvoyer = pre ? listes[pre].slice() : [];
+    var base = chemin.split('/').pop().replace(/\.json$/, '');
     donnees.photos = [];
     var suite = Promise.resolve({ ok: true });
     aEnvoyer.forEach(function (p, i) {
       suite = suite.then(function (r) {
         if (!r.ok) return r;
         statut('Envoi de la photo ' + (i + 1) + ' sur ' + aEnvoyer.length + '…');
-        var cp = 'a-importer/photos/' + base + '_' + (i + 1) + '.jpg';
+        var cp = T.dossier + '/photos/' + base + '_' + (i + 1) + '.jpg';
         donnees.photos.push(cp);
         return base64Blob(p.blob).then(function (b64) { return deposer(cp, b64); });
       });
@@ -324,10 +382,12 @@
       return deposer(chemin, base64Utf8(JSON.stringify(donnees, null, 2)));
     }).then(function (r) {
       if (r.ok) {
-        Object.keys(T.champs).forEach(function (id) { remplir(id, ''); ecrire('brouillon_' + id, ''); });
+        // La structure reste choisie : on peut envoyer d'autres photos de la même intervention
+        Object.keys(T.champs).forEach(function (id) { if (id !== 'i_structure') { remplir(id, ''); ecrire('brouillon_' + id, ''); } });
         majDate();
-        if (aEnvoyer.length) { photos.forEach(function (p) { URL.revokeObjectURL(p.url); }); photos = []; vignettes(); }
-        statut({ article: (aEnvoyer.length ? 'Envoyé avec ' + aEnvoyer.length + ' photo' + (aEnvoyer.length > 1 ? 's' : '') + ' ✓ Il t\'attend dans le Séquenceur.' : 'Envoyé ✓ Il t\'attend dans le Séquenceur.'), contact: 'Contact envoyé ✓ Il t\'attend dans le Hub.', mail: 'Mail envoyé ✓ Il t\'attend dans les brouillons du Hub.', tache: 'Tâche envoyée ✓ Elle arrivera dans ton app Tâches.' }[type], 'ok');
+        if (aEnvoyer.length) { listes[pre].forEach(function (p) { URL.revokeObjectURL(p.url); }); listes[pre] = []; vignettes(pre); }
+        statut({ article: (aEnvoyer.length ? 'Envoyé avec ' + aEnvoyer.length + ' photo' + (aEnvoyer.length > 1 ? 's' : '') + ' ✓ Il t\'attend dans le Séquenceur.' : 'Envoyé ✓ Il t\'attend dans le Séquenceur.'), contact: 'Contact envoyé ✓ Il t\'attend dans le Hub.', mail: 'Mail envoyé ✓ Il t\'attend dans les brouillons du Hub.', tache: 'Tâche envoyée ✓ Elle arrivera dans ton app Tâches.',
+          intervention: aEnvoyer.length + ' photo' + (aEnvoyer.length > 1 ? 's' : '') + ' envoyée' + (aEnvoyer.length > 1 ? 's' : '') + ' ✓ Elles arriveront dans le dossier de l\'intervention.' }[type], 'ok');
       } else if (r.status === 401) {
         statut('Clé d\'accès refusée : vérifie-la dans les réglages.', 'err');
       } else if (r.status === 404 || r.status === 403) {
