@@ -37,6 +37,13 @@
   .choix button { text-align:left; background:var(--card); color:var(--txt); border:1px solid var(--bord); padding:12px 14px; font-weight:600; }
   .choix button small { display:block; font-weight:400; color:var(--muted); }
   .choix button.on { border-color:var(--acc); box-shadow:inset 0 0 0 2px var(--acc); }
+  .histo { list-style:none; margin:10px 0 0; padding:0; display:flex; flex-direction:column; gap:8px; }
+  .histo li { border:1px solid var(--bord); border-radius:10px; padding:10px 12px; }
+  .histo .quand { color:var(--muted); font-size:.82rem; }
+  .histo .apercu { margin:4px 0 8px; white-space:pre-wrap; overflow-wrap:anywhere; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+  .histo li.ouvert .apercu { display:block; }
+  .histo .actions { display:flex; gap:8px; }
+  .histo .actions button { padding:8px 12px; font-size:.9rem; }
   .vignettes { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
   .vignettes figure { position:relative; margin:0; }
   .vignettes img { width:72px; height:72px; object-fit:cover; border-radius:8px; border:1px solid var(--bord); display:block; }
@@ -46,6 +53,8 @@
 </head>
 <body>
 <main>
+  <!-- autocomplete="off" : le navigateur ne remet pas l'ancien texte dans
+       les cases quand il recharge la page (onglet rouvert, retour arrière). -->
   <h1>Envoyer depuis le téléphone</h1>
 
   <div class="onglets" role="tablist">
@@ -59,9 +68,9 @@
   <!-- Article : arrive dans les Brouillons du Séquenceur -->
   <section id="f-article">
     <label for="a_titre">Titre</label>
-    <input id="a_titre" placeholder="Titre de l'article (facultatif)">
+    <input autocomplete="off" id="a_titre" placeholder="Titre de l'article (facultatif)">
     <label for="a_texte">Texte</label>
-    <textarea id="a_texte" placeholder="Colle ici le texte dicté…"></textarea>
+    <textarea autocomplete="off" id="a_texte" placeholder="Colle ici le texte dicté…"></textarea>
     <label for="a_photos">Photos</label>
     <input id="a_photos" type="file" accept="image/*" multiple>
     <div id="a_vignettes" class="vignettes"></div>
@@ -72,38 +81,38 @@
   <!-- Contact : arrive dans l'Excel Contact via le Hub -->
   <section id="f-contact" hidden>
     <label for="c_nom">Prénom et nom</label>
-    <input id="c_nom" placeholder="ex : Marie Dupont" autocomplete="off">
+    <input autocomplete="off" id="c_nom" placeholder="ex : Marie Dupont">
     <label for="c_mail">Adresse mail</label>
-    <input id="c_mail" type="email" inputmode="email" autocapitalize="off" autocorrect="off" placeholder="marie.dupont@exemple.fr">
+    <input autocomplete="off" id="c_mail" type="email" inputmode="email" autocapitalize="off" autocorrect="off" placeholder="marie.dupont@exemple.fr">
     <label for="c_tel">Téléphone</label>
-    <input id="c_tel" type="tel" inputmode="tel" placeholder="facultatif">
+    <input autocomplete="off" id="c_tel" type="tel" inputmode="tel" placeholder="facultatif">
     <label for="c_structure">Structure</label>
-    <input id="c_structure" placeholder="ex : Lycée Jean Moulin, Médiathèque de… (facultatif)">
+    <input autocomplete="off" id="c_structure" placeholder="ex : Lycée Jean Moulin, Médiathèque de… (facultatif)">
     <p class="aide">Écris-la comme sur sa fiche du Hub : le contact y sera ajouté.</p>
     <label for="c_fonction">Fonction</label>
-    <input id="c_fonction" placeholder="ex : professeure documentaliste (facultatif)">
+    <input autocomplete="off" id="c_fonction" placeholder="ex : professeure documentaliste (facultatif)">
     <label for="c_note">Note</label>
-    <textarea id="c_note" placeholder="Où vous vous êtes rencontrés, ce qu'il faut faire… (facultatif)"></textarea>
+    <textarea autocomplete="off" id="c_note" placeholder="Où vous vous êtes rencontrés, ce qu'il faut faire… (facultatif)"></textarea>
     <p class="aide">Arrive dans le Hub, qui l'ajoute à tes contacts.</p>
   </section>
 
   <!-- Mail : arrive dans les brouillons de mail du Hub -->
   <section id="f-mail" hidden>
     <label for="m_objet">Objet</label>
-    <input id="m_objet" placeholder="Objet du mail (facultatif)">
+    <input autocomplete="off" id="m_objet" placeholder="Objet du mail (facultatif)">
     <label for="m_pour">Pour qui ?</label>
-    <input id="m_pour" placeholder="Nom, structure ou adresse (facultatif, tu choisiras dans le Hub)">
+    <input autocomplete="off" id="m_pour" placeholder="Nom, structure ou adresse (facultatif, tu choisiras dans le Hub)">
     <label for="m_texte">Texte du mail</label>
-    <textarea id="m_texte" placeholder="Colle ici le mail dicté…"></textarea>
+    <textarea autocomplete="off" id="m_texte" placeholder="Colle ici le mail dicté…"></textarea>
     <p class="aide">Arrive dans les ✍️ Brouillons du Hub : tu choisis le destinataire avec « ✉️ Envoyer à… ».</p>
   </section>
 
   <!-- Tâche : arrive dans l'app Tâches via le Hub -->
   <section id="f-tache" hidden>
     <label for="t_titre">Tâche</label>
-    <input id="t_titre" placeholder="ex : Rappeler le lycée Jean Moulin">
+    <input autocomplete="off" id="t_titre" placeholder="ex : Rappeler le lycée Jean Moulin">
     <label for="t_quand">Quand ?</label>
-    <select id="t_quand">
+    <select autocomplete="off" id="t_quand">
       <option value="none">Pas de date</option>
       <option value="today">Aujourd'hui</option>
       <option value="tomorrow">Demain</option>
@@ -112,17 +121,17 @@
     </select>
     <div id="t_date_bloc" hidden>
       <label for="t_date">Date</label>
-      <input id="t_date" type="date">
+      <input autocomplete="off" id="t_date" type="date">
     </div>
     <label for="t_prio">Priorité</label>
-    <select id="t_prio">
+    <select autocomplete="off" id="t_prio">
       <option value="normal">Normale</option>
       <option value="low">Faible</option>
       <option value="high">Haute</option>
       <option value="critical">Critique</option>
     </select>
     <label for="t_notes">Note</label>
-    <textarea id="t_notes" placeholder="Détails (facultatif)"></textarea>
+    <textarea autocomplete="off" id="t_notes" placeholder="Détails (facultatif)"></textarea>
     <p class="aide">Arrive dans ton app Tâches dès que le Hub est ouvert.</p>
   </section>
 
@@ -132,7 +141,7 @@
     <label>Intervention</label>
     <div id="i_choix" class="choix"></div>
     <label for="i_structure" id="i_autre">Ou une autre structure</label>
-    <input id="i_structure" list="i_liste" placeholder="ex : Lycée Jean Moulin" autocomplete="off">
+    <input autocomplete="off" id="i_structure" list="i_liste" placeholder="ex : Lycée Jean Moulin">
     <datalist id="i_liste"></datalist>
     <p class="aide" id="i_aide">Écris-la comme sur sa fiche du Hub.</p>
     <label for="i_photos">Photos</label>
@@ -147,6 +156,13 @@
     <button class="principal" id="envoyer" type="button">Envoyer</button>
   </div>
   <div id="statut"></div>
+
+  <details id="historique">
+    <summary>📜 Textes envoyés <span id="h_nb"></span></summary>
+    <p class="aide">Après chaque envoi, la page se vide et le texte est gardé ici (les 50 derniers, sur ce téléphone uniquement). Touche un texte pour le lire en entier.</p>
+    <ul id="h_liste" class="histo"></ul>
+    <button class="secondaire" id="h_vider" type="button" hidden>Vider l'historique</button>
+  </details>
 
   <details id="reglages">
     <summary>Réglages (une seule fois)</summary>
@@ -211,6 +227,79 @@
   });
   majDate();
 
+  /* Remet chaque case d'après le brouillon enregistré. Utile quand la page
+     revient d'arrière-plan, est restaurée par le navigateur avec ses
+     anciennes valeurs, ou qu'un autre onglet de la page a envoyé le texte
+     (son brouillon est alors vide) : on ne retrouve plus le texte d'avant. */
+  function resynchroniser() {
+    Object.keys(TYPES).forEach(function (t) {
+      Object.keys(TYPES[t].champs).forEach(function (id) {
+        var v = lire('brouillon_' + id);
+        if ($(id).value !== v && document.activeElement !== $(id)) remplir(id, v);
+      });
+    });
+    majDate();
+    afficherHistorique();
+  }
+  window.addEventListener('pageshow', resynchroniser);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) resynchroniser(); });
+  window.addEventListener('storage', function (e) { if (e.key && e.key.indexOf('dictees_') === 0) resynchroniser(); });
+
+  /* Historique des envois : les 50 derniers, gardés dans ce navigateur. */
+  var HISTO_MAX = 50, ICONES = { article: '📝', contact: '👤', mail: '✉️', tache: '✅', intervention: '🏫' };
+  function lireHistorique() { try { return JSON.parse(lire('historique') || '[]'); } catch (e) { return []; } }
+  function garderDansHistorique(t, valeurs, resume) {
+    var h = lireHistorique();
+    h.unshift({ type: t, quand: new Date().toISOString(), valeurs: valeurs, resume: resume });
+    ecrire('historique', JSON.stringify(h.slice(0, HISTO_MAX)));
+    afficherHistorique();
+  }
+  function texteEntree(e) {
+    var T = TYPES[e.type]; if (!T) return '';
+    var titre = e.valeurs[T.titre] || '', corps = T.texte !== T.titre ? (e.valeurs[T.texte] || '') : '';
+    return (titre && corps) ? titre + '\n\n' + corps : (titre || corps);
+  }
+  function afficherHistorique() {
+    var h = lireHistorique(), ul = $('h_liste');
+    $('h_nb').textContent = h.length ? '(' + h.length + ')' : '';
+    $('h_vider').hidden = !h.length;
+    ul.innerHTML = '';
+    if (!h.length) { ul.innerHTML = '<li class="aide">Rien pour l\'instant.</li>'; return; }
+    h.forEach(function (e, i) {
+      var li = document.createElement('li'), d = new Date(e.quand);
+      li.innerHTML = '<div class="quand"></div><div class="apercu"></div><div class="actions">' +
+        '<button type="button" class="secondaire" data-a="reprendre">↩️ Reprendre</button>' +
+        '<button type="button" class="secondaire" data-a="copier">📋 Copier</button></div>';
+      li.querySelector('.quand').textContent = (ICONES[e.type] || '') + ' ' +
+        d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' }) + ' à ' +
+        d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) + (e.resume ? ' · ' + e.resume : '');
+      li.querySelector('.apercu').textContent = texteEntree(e) || '(sans texte)';
+      li.querySelector('.apercu').addEventListener('click', function () { li.classList.toggle('ouvert'); });
+      li.querySelector('[data-a=reprendre]').addEventListener('click', function () { reprendre(e); });
+      li.querySelector('[data-a=copier]').addEventListener('click', function () {
+        var t = texteEntree(e);
+        if (!navigator.clipboard || !navigator.clipboard.writeText) { statut('Copie impossible ici : touche le texte pour l\'afficher et sélectionne-le.', 'err'); return; }
+        navigator.clipboard.writeText(t).then(function () { statut('Texte copié ✓', 'ok'); }, function () { statut('Copie impossible ici : touche le texte pour l\'afficher et sélectionne-le.', 'err'); });
+      });
+      ul.appendChild(li);
+    });
+  }
+  function reprendre(e) {
+    var T = TYPES[e.type]; if (!T) return;
+    var occupe = Object.keys(T.champs).some(function (id) { return id !== 'i_structure' && $(id).tagName !== 'SELECT' && $(id).value.trim(); });
+    if (occupe && !confirm('La page contient déjà un texte. Le remplacer par celui de l\'historique ?')) return;
+    choisir(e.type);
+    Object.keys(T.champs).forEach(function (id) { var v = e.valeurs[id] || ''; remplir(id, v); ecrire('brouillon_' + id, v); });
+    majDate();
+    $('historique').open = false;
+    window.scrollTo(0, 0);
+    statut('Texte remis dans la page. Touche « Envoyer » pour le renvoyer.', 'ok');
+  }
+  $('h_vider').addEventListener('click', function () {
+    if (!confirm('Effacer tout l\'historique des textes envoyés ?')) return;
+    ecrire('historique', '[]'); afficherHistorique();
+  });
+
   function choisir(t) {
     type = t;
     document.querySelectorAll('.onglets button').forEach(function (b) { b.classList.toggle('on', b.dataset.type === t); });
@@ -223,6 +312,7 @@
     b.addEventListener('click', function () { choisir(b.dataset.type); });
   });
   if (TYPES[lire('type')]) choisir(lire('type'));
+  afficherHistorique();
 
   $('sauver').addEventListener('click', function () {
     CLES.forEach(function (k) { ecrire(k, $(k).value.trim()); });
@@ -382,6 +472,8 @@
     }
     donnees.envoye_le = new Date().toISOString();
 
+    var envoiType = type, valeurs = {};
+    Object.keys(T.champs).forEach(function (id) { valeurs[id] = $(id).value; });
     var chemin = nomFichier(T.dossier, type === 'intervention' ? donnees.structure : $(T.titre).value.trim());
     $('envoyer').disabled = true;
     statut('Envoi en cours…');
@@ -417,6 +509,10 @@
       return deposer(chemin, base64Utf8(JSON.stringify(donnees, null, 2)));
     }).then(function (r) {
       if (r.ok) {
+        var nbPhotos = aEnvoyer.length;
+        garderDansHistorique(envoiType, valeurs, nbPhotos ? nbPhotos + ' photo' + (nbPhotos > 1 ? 's' : '') : '');
+        // Le clavier (dictée) ne doit pas garder l'ancien texte en mémoire
+        if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
         // La structure reste choisie : on peut envoyer d'autres photos de la même intervention
         Object.keys(T.champs).forEach(function (id) { if (id !== 'i_structure') { remplir(id, ''); ecrire('brouillon_' + id, ''); } });
         majDate();
