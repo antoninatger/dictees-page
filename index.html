@@ -159,6 +159,9 @@
     <input autocomplete="off" id="i_structure" list="i_liste" placeholder="ex : Lycée Jean Moulin">
     <datalist id="i_liste"></datalist>
     <p class="aide" id="i_aide">Écris-la comme sur sa fiche du Hub.</p>
+    <label for="i_texte">Texte du post</label>
+    <textarea autocomplete="off" id="i_texte" placeholder="Colle ici ton compte rendu de l'intervention (facultatif)…"></textarea>
+    <p class="aide">Arrive sur la fiche de la structure dans le Hub : il sera proposé quand tu feras le post depuis ses photos.</p>
     <label for="i_photos">Photos</label>
     <input id="i_photos" type="file" accept="image/*" multiple>
     <div id="i_vignettes" class="vignettes"></div>
@@ -211,8 +214,8 @@
                champs: { m_objet: 'objet', m_pour: 'destinataire', m_texte: 'texte' } },
     tache:   { dossier: 'taches/a-importer', texte: 't_notes', requis: 't_titre', titre: 't_titre',
                champs: { t_titre: 'titre', t_quand: 'horizon', t_date: 'dateStart', t_prio: 'priority', t_notes: 'notes' } },
-    intervention: { dossier: 'interventions/a-importer', texte: 'i_structure', requis: 'i_structure', titre: 'i_structure',
-               photos: 'i', photosMax: 30, champs: { i_structure: 'structure' } }
+    intervention: { dossier: 'interventions/a-importer', texte: 'i_texte', requis: 'i_structure', titre: 'i_structure',
+               photos: 'i', photosMax: 30, champs: { i_structure: 'structure', i_texte: 'texte' } }
   };
   var type = 'article';
 
@@ -497,7 +500,8 @@
     if (type === 'tache' && donnees.horizon !== 'date') donnees.dateStart = '';
     if (type === 'contact' && !donnees.nom && !donnees.email) { statut('Indique au moins un nom ou une adresse mail.', 'err'); return; }
     if (type === 'contact' && donnees.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(donnees.email)) { statut('L\'adresse mail semble incomplète.', 'err'); return; }
-    if (type === 'intervention' && !listes.i.length) { statut('Choisis d\'abord les photos.', 'err'); return; }
+    if (type === 'intervention' && !listes.i.length && !donnees.texte) { statut('Ajoute un texte ou des photos.', 'err'); return; }
+    if (type === 'intervention' && !donnees.texte) delete donnees.texte;
     var reseaux = direct ? reseauxCoches() : [];
     if (direct && !reseaux.length) { statut('Coche au moins un réseau.', 'err'); return; }
     if (direct && reseaux.indexOf('instagram') >= 0 && !listes.a.length) { statut('Instagram demande au moins une photo.', 'err'); return; }
@@ -514,7 +518,7 @@
     $('envoyer').disabled = $('publier').disabled = true;
     statut('Envoi en cours…');
 
-    var etiquette = { article: 'Dictée', contact: 'Contact', mail: 'Mail', tache: 'Tâche', intervention: 'Photos d\'intervention' }[type];
+    var etiquette = { article: 'Dictée', contact: 'Contact', mail: 'Mail', tache: 'Tâche', intervention: donnees.texte && !listes.i.length ? 'Texte d\'intervention' : 'Photos d\'intervention' }[type];
     if (direct) etiquette = 'Publication';
     var message = etiquette + ' : ' + ($(T.titre).value.trim() || 'sans titre');
     var deposer = function (cheminFichier, contenu64) {
@@ -550,6 +554,8 @@
         var resume = [];
         if (direct) resume.push('📤 ' + reseaux.map(function (r) { return NOMS_RESEAUX[r]; }).join(', '));
         if (nbPhotos) resume.push(nbPhotos + ' photo' + (nbPhotos > 1 ? 's' : ''));
+        var avecTexte = envoiType === 'intervention' && !!donnees.texte;
+        if (avecTexte) resume.push('texte du post');
         garderDansHistorique(envoiType, valeurs, resume.join(' · '));
         // Le clavier (dictée) ne doit pas garder l'ancien texte en mémoire
         if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
@@ -559,7 +565,7 @@
         if (aEnvoyer.length) { listes[pre].forEach(function (p) { URL.revokeObjectURL(p.url); }); listes[pre] = []; vignettes(pre); }
         if (direct) statut('Programmé ✓ Publication sur ' + reseaux.map(function (r) { return NOMS_RESEAUX[r]; }).join(', ') + ' dès que le Séquenceur sera ouvert.', 'ok');
         else statut({ article: (aEnvoyer.length ? 'Envoyé avec ' + aEnvoyer.length + ' photo' + (aEnvoyer.length > 1 ? 's' : '') + ' ✓ Il t\'attend dans le Séquenceur.' : 'Envoyé ✓ Il t\'attend dans le Séquenceur.'), contact: 'Contact envoyé ✓ Il t\'attend dans le Hub.', mail: 'Mail envoyé ✓ Il t\'attend dans les brouillons du Hub.', tache: 'Tâche envoyée ✓ Elle arrivera dans ton app Tâches.',
-          intervention: aEnvoyer.length + ' photo' + (aEnvoyer.length > 1 ? 's' : '') + ' envoyée' + (aEnvoyer.length > 1 ? 's' : '') + ' ✓ Elles arriveront dans le dossier de l\'intervention.' }[type], 'ok');
+          intervention: (aEnvoyer.length ? aEnvoyer.length + ' photo' + (aEnvoyer.length > 1 ? 's' : '') + (avecTexte ? ' et texte' : '') + ' envoyé' + (aEnvoyer.length > 1 || avecTexte ? 's' : '') + ' ✓ Ils arriveront sur la fiche de l\'intervention dans le Hub.' : 'Texte envoyé ✓ Il arrivera sur la fiche de l\'intervention dans le Hub.') }[type], 'ok');
       } else if (r.status === 401) {
         statut('Clé d\'accès refusée : vérifie-la dans les réglages.', 'err');
       } else if (r.status === 404 || r.status === 403) {
