@@ -54,6 +54,10 @@
   .vignettes img { width:72px; height:72px; object-fit:cover; border-radius:8px; border:1px solid var(--bord); display:block; }
   .vignettes button { position:absolute; top:-6px; right:-6px; width:24px; height:24px; padding:0; border-radius:50%;
     background:var(--err); color:#fff; font-size:.8rem; line-height:24px; }
+  #i_vignettes img { cursor:pointer; }
+  .vignettes figure.post img { outline:3px solid var(--acc); outline-offset:-3px; }
+  .vignettes .num { position:absolute; left:4px; top:4px; min-width:22px; height:22px; border-radius:11px; padding:0 4px;
+    background:var(--acc); color:#fff; font-size:.75rem; font-weight:700; display:flex; align-items:center; justify-content:center; box-sizing:border-box; }
 </style>
 </head>
 <body>
@@ -166,6 +170,7 @@
     <input id="i_photos" type="file" accept="image/*" multiple>
     <div id="i_vignettes" class="vignettes"></div>
     <p class="aide">Jusqu'à 30 photos à la fois. Elles sont réduites avant l'envoi.</p>
+    <p class="aide" id="i_post_aide">Touche les photos à garder pour le post (4 au plus, la 1re sera la photo principale) : elles seront déjà choisies dans le Hub et le Séquenceur.</p>
     <p class="aide">Arrive dans le Hub, dans le dossier Photos de l'intervention.</p>
   </section>
 
@@ -380,16 +385,40 @@
      intervention : « i ») : [{ blob, url }] */
   TYPES.article.photos = 'a'; TYPES.article.photosMax = 4;
   var listes = { a: [], i: [] };
+  /* Photos d'intervention choisies pour le post (16/11/2026), dans l'ordre
+     où on les touche : la 1re sera la photo principale. Envoyées comme
+     photos_post ; le Hub les nomme « Post 1 - … », « Post 2 - … », et sa
+     galerie (« 📣 Faire un post ») comme le Séquenceur (« 🔗 Relier ») les
+     cochent d'office. */
+  var POST_MAX = 4, choixPost = [];
   function vignettes(pre) {
     var photos = listes[pre];
+    choixPost = choixPost.filter(function (p) { return listes.i.indexOf(p) >= 0; });
     $(pre + '_vignettes').innerHTML = '';
     photos.forEach(function (p, i) {
       var f = document.createElement('figure');
       f.innerHTML = '<img alt=""><button type="button" aria-label="Retirer la photo">✕</button>';
       f.querySelector('img').src = p.url;
       f.querySelector('button').addEventListener('click', function () { URL.revokeObjectURL(p.url); photos.splice(i, 1); vignettes(pre); });
+      if (pre === 'i') {
+        var k = choixPost.indexOf(p);
+        if (k >= 0) {
+          f.className = 'post';
+          var n = document.createElement('span'); n.className = 'num'; n.textContent = k + 1; f.appendChild(n);
+        }
+        f.querySelector('img').addEventListener('click', function () {
+          var j = choixPost.indexOf(p);
+          if (j >= 0) choixPost.splice(j, 1);
+          else if (choixPost.length >= POST_MAX) { statut(POST_MAX + ' photos au plus pour le post.', 'err'); return; }
+          else choixPost.push(p);
+          vignettes(pre);
+        });
+      }
       $(pre + '_vignettes').appendChild(f);
     });
+    if (pre === 'i') $('i_post_aide').textContent = choixPost.length
+      ? choixPost.length + ' photo' + (choixPost.length > 1 ? 's' : '') + ' pour le post (la n° 1 sera la principale). Touche-la de nouveau pour la retirer.'
+      : 'Touche les photos à garder pour le post (4 au plus, la 1re sera la photo principale) : elles seront déjà choisies dans le Hub et le Séquenceur.';
   }
   function reduire(fichier) {
     return new Promise(function (ok, ko) {
@@ -533,6 +562,7 @@
     var pre = T.photos, aEnvoyer = pre ? listes[pre].slice() : [];
     var base = chemin.split('/').pop().replace(/\.json$/, '');
     donnees.photos = [];
+    var postChemins = [];
     var suite = Promise.resolve({ ok: true });
     aEnvoyer.forEach(function (p, i) {
       suite = suite.then(function (r) {
@@ -540,6 +570,7 @@
         statut('Envoi de la photo ' + (i + 1) + ' sur ' + aEnvoyer.length + '…');
         var cp = T.dossier + '/photos/' + base + '_' + (i + 1) + '.jpg';
         donnees.photos.push(cp);
+        if (pre === 'i') { var k = choixPost.indexOf(p); if (k >= 0) postChemins[k] = cp; }
         return base64Blob(p.blob).then(function (b64) { return deposer(cp, b64); });
       });
     });
@@ -547,6 +578,8 @@
       if (!r.ok) return r;
       if (aEnvoyer.length) statut('Envoi du texte…');
       if (!donnees.photos.length) delete donnees.photos;
+      postChemins = postChemins.filter(Boolean);
+      if (postChemins.length) donnees.photos_post = postChemins;
       return deposer(chemin, base64Utf8(JSON.stringify(donnees, null, 2)));
     }).then(function (r) {
       if (r.ok) {
@@ -562,7 +595,7 @@
         // La structure reste choisie : on peut envoyer d'autres photos de la même intervention
         Object.keys(T.champs).forEach(function (id) { if (id !== 'i_structure') { remplir(id, ''); ecrire('brouillon_' + id, ''); } });
         majDate();
-        if (aEnvoyer.length) { listes[pre].forEach(function (p) { URL.revokeObjectURL(p.url); }); listes[pre] = []; vignettes(pre); }
+        if (aEnvoyer.length) { listes[pre].forEach(function (p) { URL.revokeObjectURL(p.url); }); listes[pre] = []; if (pre === 'i') choixPost = []; vignettes(pre); }
         if (direct) statut('Programmé ✓ Publication sur ' + reseaux.map(function (r) { return NOMS_RESEAUX[r]; }).join(', ') + ' dès que le Séquenceur sera ouvert.', 'ok');
         else statut({ article: (aEnvoyer.length ? 'Envoyé avec ' + aEnvoyer.length + ' photo' + (aEnvoyer.length > 1 ? 's' : '') + ' ✓ Il t\'attend dans le Séquenceur.' : 'Envoyé ✓ Il t\'attend dans le Séquenceur.'), contact: 'Contact envoyé ✓ Il t\'attend dans le Hub.', mail: 'Mail envoyé ✓ Il t\'attend dans les brouillons du Hub.', tache: 'Tâche envoyée ✓ Elle arrivera dans ton app Tâches.',
           intervention: (aEnvoyer.length ? aEnvoyer.length + ' photo' + (aEnvoyer.length > 1 ? 's' : '') + (avecTexte ? ' et texte' : '') + ' envoyé' + (aEnvoyer.length > 1 || avecTexte ? 's' : '') + ' ✓ Ils arriveront sur la fiche de l\'intervention dans le Hub.' : 'Texte envoyé ✓ Il arrivera sur la fiche de l\'intervention dans le Hub.') }[type], 'ok');
