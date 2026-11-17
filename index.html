@@ -472,23 +472,34 @@
       boutonsInterventions();
     }).catch(function () { interventions = null; });
   }
-  /* Les 6 dernières interventions (déjà commencées ou toutes proches, la plus
-     récente en haut) : un toucher suffit pour y rattacher les photos.
-     Une intervention sur plusieurs jours porte la date de sa dernière séance
-     (17/11/2026 : Actives, 17 et 18/11, n'apparaissait pas le 17) : on garde
-     celles qui ont commencé (« debut » si le Hub le donne) ou qui tombent
-     dans les 3 prochains jours. */
+  /* Les 6 interventions les plus proches d'aujourd'hui, séance par séance
+     (17/11/2026) : une intervention remonte dès qu'on est autour d'une de
+     ses séances, le jour même en premier, puis la plus proche (passée ou à
+     venir dans les 3 jours). On peut ainsi déposer les photos dès le matin.
+     Le Hub peut donner toutes les dates dans « seances » ; sinon on se sert
+     de « debut » et « date » (la dernière séance). */
   function jourIso(d) { var p = function (n) { return String(n).padStart(2, '0'); }; return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); }
+  function ecartJours(iso, jour) { return Math.round((Date.parse(iso + 'T12:00:00Z') - Date.parse(jour + 'T12:00:00Z')) / 864e5); }
   function boutonsInterventions() {
-    var auj = new Date(), jour = jourIso(auj);
-    var limite = jourIso(new Date(auj.getFullYear(), auj.getMonth(), auj.getDate() + 3));
-    var dernieres = (interventions || []).filter(function (it) {
-      return it.date && (it.date <= limite || (it.debut && it.debut <= jour));
-    })
-      .sort(function (a, b) { return a.date < b.date ? 1 : -1; }).slice(0, 6);
+    var jour = jourIso(new Date());
+    var dernieres = (interventions || []).map(function (it) {
+      var dates = (Array.isArray(it.seances) ? it.seances : []).concat([it.debut, it.date])
+        .filter(function (d) { return /^\d{4}-\d{2}-\d{2}$/.test(d || ''); });
+      var proche = null, ecart = Infinity;
+      dates.forEach(function (d) {
+        var e = ecartJours(d, jour);
+        if (e > 3) return; // trop loin dans le futur
+        // à égalité, la séance passée avant celle à venir
+        if (Math.abs(e) < Math.abs(ecart) || (Math.abs(e) === Math.abs(ecart) && e < ecart)) { ecart = e; proche = d; }
+      });
+      return proche ? { it: it, seance: proche, ecart: ecart } : null;
+    }).filter(Boolean).sort(function (a, b) {
+      return Math.abs(a.ecart) - Math.abs(b.ecart) || a.ecart - b.ecart;
+    }).slice(0, 6);
     $('i_choix').innerHTML = '';
-    dernieres.forEach(function (it) {
-      var b = document.createElement('button'), d = it.date.split('-').reverse().join('/');
+    dernieres.forEach(function (x) {
+      var it = x.it, b = document.createElement('button'), d = x.seance.split('-').reverse().join('/');
+      if (x.ecart === 0) d = 'aujourd\'hui';
       b.type = 'button';
       b.innerHTML = '<span></span><small></small>';
       b.querySelector('span').textContent = it.structure;
