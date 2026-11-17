@@ -619,6 +619,8 @@
           if (hs[k] && (vues.indexOf(hs[k]) >= 0 || res.empreintes.indexOf(hs[k]) >= 0)) { res.ignorees++; return; }
           res.photos.push(ph); res.empreintes.push(hs[k]);
         });
+        // « Texte en plus » : le Hub l'ajoute à la suite du texte déjà gardé
+        if (donnees.texte && modeTexte === 'ajout' && deja.texte) donnees.mode_texte = 'ajout';
         if (!donnees.texte || modeTexte !== 'remplace' || !deja.texte) return res;
         donnees.remplace_texte = true;
         var url = 'https://api.github.com/repos/' + encodeURIComponent(compte) + '/' + encodeURIComponent(depot) + '/contents/' + deja.texte;
