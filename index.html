@@ -42,6 +42,8 @@
   .choix button { text-align:left; background:var(--card); color:var(--txt); border:1px solid var(--bord); padding:12px 14px; font-weight:600; }
   .choix button small { display:block; font-weight:400; color:var(--muted); }
   .choix button.on { border-color:var(--acc); box-shadow:inset 0 0 0 2px var(--acc); }
+  .choix.duo { flex-direction:row; margin-top:6px; }
+  .choix.duo button { flex:1; }
   .histo { list-style:none; margin:10px 0 0; padding:0; display:flex; flex-direction:column; gap:8px; }
   .histo li { border:1px solid var(--bord); border-radius:10px; padding:10px 12px; }
   .histo .quand { color:var(--muted); font-size:.82rem; }
@@ -166,6 +168,13 @@
     <label for="i_texte">Texte du post</label>
     <textarea autocomplete="off" id="i_texte" placeholder="Colle ici ton compte rendu de l'intervention (facultatif)…"></textarea>
     <p class="aide">Arrive sur la fiche de la structure dans le Hub : il sera proposé quand tu feras le post depuis ses photos.</p>
+    <div id="i_mode" hidden>
+      <p class="aide">Tu as déjà envoyé un texte pour cette intervention. Ce nouveau texte, c'est :</p>
+      <div class="choix duo">
+        <button type="button" data-mode="remplace">♻️ Annule et remplace<small>corrige le texte déjà envoyé</small></button>
+        <button type="button" data-mode="ajout">➕ Texte en plus<small>garde aussi le premier</small></button>
+      </div>
+    </div>
     <label for="i_photos">Photos</label>
     <input id="i_photos" type="file" accept="image/*" multiple>
     <div id="i_vignettes" class="vignettes"></div>
@@ -469,7 +478,7 @@
         var o = document.createElement('option'); o.value = libelle(it); $('i_liste').appendChild(o);
       });
       if (interventions.length) $('i_aide').textContent = 'Touche la case pour voir toutes tes interventions récentes, ou écris le nom de la structure.';
-      boutonsInterventions();
+      boutonsInterventions(); majModeTexte();
     }).catch(function () { interventions = null; });
   }
   /* Les 6 interventions les plus proches d'aujourd'hui, séance par séance
@@ -531,6 +540,36 @@
     });
   }
 
+  /* Envois déjà faits pour chaque intervention depuis ce téléphone
+     (17/11/2026) : le dernier texte (son fichier) et l'empreinte des photos.
+     Un nouveau texte demande s'il s'ajoute ou s'il annule et remplace le
+     précédent ; une photo déjà envoyée n'est pas renvoyée. */
+  var modeTexte = '';
+  function lireEnvois() { try { return JSON.parse(lire('envois_interv') || '{}'); } catch (e) { return {}; } }
+  function cleIntervention(valeur) {
+    var it = interventionChoisie(valeur);
+    return it ? 'id:' + it.id : 'nom:' + String(valeur || '').trim().toLowerCase();
+  }
+  function majModeTexte() {
+    var deja = lireEnvois()[cleIntervention($('i_structure').value)];
+    var voir = !!(deja && deja.texte && $('i_texte').value.trim());
+    if (!voir) modeTexte = '';
+    $('i_mode').hidden = !voir;
+    document.querySelectorAll('#i_mode button').forEach(function (b) { b.classList.toggle('on', b.dataset.mode === modeTexte); });
+  }
+  document.querySelectorAll('#i_mode button').forEach(function (b) {
+    b.addEventListener('click', function () { modeTexte = b.dataset.mode; majModeTexte(); });
+  });
+  $('i_structure').addEventListener('input', function () { modeTexte = ''; majModeTexte(); });
+  $('i_texte').addEventListener('input', majModeTexte);
+  $('i_choix').addEventListener('click', function () { modeTexte = ''; majModeTexte(); });
+  function empreinte(blob) {
+    if (!window.crypto || !crypto.subtle || !blob.arrayBuffer) return Promise.resolve('');
+    return blob.arrayBuffer().then(function (b) { return crypto.subtle.digest('SHA-256', b); }).then(function (h) {
+      return Array.prototype.map.call(new Uint8Array(h), function (x) { return ('0' + x.toString(16)).slice(-2); }).join('');
+    }).catch(function () { return ''; });
+  }
+
   $('envoyer').addEventListener('click', function () { envoyer(false); });
   $('publier').addEventListener('click', function () { envoyer(true); });
 
@@ -549,6 +588,7 @@
     if (type === 'contact' && donnees.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(donnees.email)) { statut('L\'adresse mail semble incomplète.', 'err'); return; }
     if (type === 'intervention' && !listes.i.length && !donnees.texte) { statut('Ajoute un texte ou des photos.', 'err'); return; }
     if (type === 'intervention' && !donnees.texte) delete donnees.texte;
+    if (type === 'intervention' && donnees.texte && !$('i_mode').hidden && !modeTexte) { statut('Dis d\'abord si ce texte s\'ajoute ou annule et remplace le précédent.', 'err'); return; }
     var reseaux = direct ? reseauxCoches() : [];
     if (direct && !reseaux.length) { statut('Coche au moins un réseau.', 'err'); return; }
     if (direct && reseaux.indexOf('instagram') >= 0 && !listes.a.length) { statut('Instagram demande au moins une photo.', 'err'); return; }
@@ -558,26 +598,68 @@
       if (it) { donnees.structure = it.structure; donnees.intervention_id = it.id; if (it.date) donnees.date = it.date; }
     }
     donnees.envoye_le = new Date().toISOString();
+    $('envoyer').disabled = $('publier').disabled = true;
+    statut('Préparation…');
+    var cle_i = type === 'intervention' ? cleIntervention($('i_structure').value) : '';
+    suiteEnvoi.direct = direct; suiteEnvoi.donnees = donnees; suiteEnvoi.reseaux = reseaux;
+    var prep = type === 'intervention' ? preparerIntervention(donnees, cle_i, compte, depot, cle) : Promise.resolve(null);
+    prep.then(function (p) { suiteEnvoi(p); }, function () {
+      statut('Pas de connexion. Ton texte est gardé, réessaie plus tard.', 'err');
+      $('envoyer').disabled = $('publier').disabled = false;
+    });
 
-    var envoiType = type, valeurs = {};
+    /* Intervention : on écarte les photos déjà envoyées, et si le texte
+       annule et remplace un texte encore en attente d'import, on corrige ce
+       fichier-là. Déjà importé : le nouveau part avec remplace_texte. */
+    function preparerIntervention(donnees, cleI, compte, depot, cle) {
+      var deja = lireEnvois()[cleI] || {}, vues = deja.photos || [];
+      return Promise.all(listes.i.map(function (ph) { return empreinte(ph.blob); })).then(function (hs) {
+        var res = { photos: [], empreintes: [], ignorees: 0, precedent: null };
+        listes.i.forEach(function (ph, k) {
+          if (hs[k] && (vues.indexOf(hs[k]) >= 0 || res.empreintes.indexOf(hs[k]) >= 0)) { res.ignorees++; return; }
+          res.photos.push(ph); res.empreintes.push(hs[k]);
+        });
+        if (!donnees.texte || modeTexte !== 'remplace' || !deja.texte) return res;
+        donnees.remplace_texte = true;
+        var url = 'https://api.github.com/repos/' + encodeURIComponent(compte) + '/' + encodeURIComponent(depot) + '/contents/' + deja.texte;
+        return fetch(url, { headers: { 'Authorization': 'Bearer ' + cle, 'Accept': 'application/vnd.github+json' }, cache: 'no-store' })
+          .then(function (r) { return r.ok ? r.json() : null; }).then(function (f) {
+            if (f && f.sha && f.content) {
+              try { res.precedent = { chemin: deja.texte, sha: f.sha, json: JSON.parse(decodeURIComponent(escape(atob(f.content.replace(/\s/g, ''))))) }; } catch (e) {}
+            }
+            return res;
+          });
+      });
+    }
+  }
+  function suiteEnvoi(prep) {
+    var compte = lire('compte'), depot = lire('depot'), cle = lire('cle');
+    var T = TYPES[type], direct = suiteEnvoi.direct, donnees = suiteEnvoi.donnees, reseaux = suiteEnvoi.reseaux;
+    var envoiType = type, valeurs = {}, cleI = prep ? cleIntervention($('i_structure').value) : '';
     Object.keys(T.champs).forEach(function (id) { valeurs[id] = $(id).value; });
     var chemin = nomFichier(T.dossier, type === 'intervention' ? donnees.structure : $(T.titre).value.trim());
-    $('envoyer').disabled = $('publier').disabled = true;
     statut('Envoi en cours…');
 
     var etiquette = { article: 'Dictée', contact: 'Contact', mail: 'Mail', tache: 'Tâche', intervention: donnees.texte && !listes.i.length ? 'Texte d\'intervention' : 'Photos d\'intervention' }[type];
     if (direct) etiquette = 'Publication';
     var message = etiquette + ' : ' + ($(T.titre).value.trim() || 'sans titre');
-    var deposer = function (cheminFichier, contenu64) {
+    var deposer = function (cheminFichier, contenu64, sha) {
+      var corps = { message: message, content: contenu64 };
+      if (sha) corps.sha = sha;
       return fetch('https://api.github.com/repos/' + encodeURIComponent(compte) + '/' + encodeURIComponent(depot) + '/contents/' + cheminFichier, {
         method: 'PUT',
         headers: { 'Authorization': 'Bearer ' + cle, 'Accept': 'application/vnd.github+json' },
-        body: JSON.stringify({ message: message, content: contenu64 })
+        body: JSON.stringify(corps)
       });
     };
     // Les photos partent d'abord : le texte n'arrive (et n'est importé)
     // qu'une fois toutes ses photos déposées.
-    var pre = T.photos, aEnvoyer = pre ? listes[pre].slice() : [];
+    var pre = T.photos, aEnvoyer = prep ? prep.photos.slice() : pre ? listes[pre].slice() : [];
+    var nbIgnorees = prep ? prep.ignorees : 0, texteCorrige = false;
+    if (prep && !aEnvoyer.length && !donnees.texte) {
+      statut('Ces photos ont déjà été envoyées pour cette intervention : rien de nouveau à envoyer.', 'err');
+      $('envoyer').disabled = $('publier').disabled = false; return;
+    }
     var base = chemin.split('/').pop().replace(/\.json$/, '');
     donnees.photos = [];
     var postChemins = [];
@@ -598,10 +680,27 @@
       if (!donnees.photos.length) delete donnees.photos;
       postChemins = postChemins.filter(Boolean);
       if (postChemins.length) donnees.photos_post = postChemins;
+      // Annule et remplace un texte pas encore importé : on corrige son fichier
+      if (prep && prep.precedent && donnees.texte) {
+        var ancien = prep.precedent.json;
+        ancien.texte = donnees.texte; ancien.corrige_le = donnees.envoye_le;
+        return deposer(prep.precedent.chemin, base64Utf8(JSON.stringify(ancien, null, 2)), prep.precedent.sha).then(function (r2) {
+          if (!r2.ok) return r2;
+          texteCorrige = true; delete donnees.texte; delete donnees.remplace_texte;
+          return donnees.photos ? deposer(chemin, base64Utf8(JSON.stringify(donnees, null, 2))) : r2;
+        });
+      }
       return deposer(chemin, base64Utf8(JSON.stringify(donnees, null, 2)));
     }).then(function (r) {
       if (r.ok) {
         var nbPhotos = aEnvoyer.length;
+        if (prep) {
+          var env = lireEnvois(), e = env[cleI] || { photos: [] };
+          e.photos = (e.photos || []).concat(prep.empreintes.filter(Boolean)).slice(-200);
+          if (donnees.texte) e.texte = chemin;
+          env[cleI] = e; ecrire('envois_interv', JSON.stringify(env));
+          modeTexte = '';
+        }
         var resume = [];
         if (direct) resume.push('📤 ' + reseaux.map(function (r) { return NOMS_RESEAUX[r]; }).join(', '));
         if (nbPhotos) resume.push(nbPhotos + ' photo' + (nbPhotos > 1 ? 's' : ''));
@@ -615,8 +714,11 @@
         majDate();
         if (aEnvoyer.length) { listes[pre].forEach(function (p) { URL.revokeObjectURL(p.url); }); listes[pre] = []; if (pre === 'i') choixPost = []; vignettes(pre); }
         if (direct) statut('Programmé ✓ Publication sur ' + reseaux.map(function (r) { return NOMS_RESEAUX[r]; }).join(', ') + ' dès que le Séquenceur sera ouvert.', 'ok');
-        else statut({ article: (aEnvoyer.length ? 'Envoyé avec ' + aEnvoyer.length + ' photo' + (aEnvoyer.length > 1 ? 's' : '') + ' ✓ Il t\'attend dans le Séquenceur.' : 'Envoyé ✓ Il t\'attend dans le Séquenceur.'), contact: 'Contact envoyé ✓ Il t\'attend dans le Hub.', mail: 'Mail envoyé ✓ Il t\'attend dans les brouillons du Hub.', tache: 'Tâche envoyée ✓ Elle arrivera dans ton app Tâches.',
-          intervention: (aEnvoyer.length ? aEnvoyer.length + ' photo' + (aEnvoyer.length > 1 ? 's' : '') + (avecTexte ? ' et texte' : '') + ' envoyé' + (aEnvoyer.length > 1 || avecTexte ? 's' : '') + ' ✓ Ils arriveront sur la fiche de l\'intervention dans le Hub.' : 'Texte envoyé ✓ Il arrivera sur la fiche de l\'intervention dans le Hub.') }[type], 'ok');
+        else statut(({ article: (aEnvoyer.length ? 'Envoyé avec ' + aEnvoyer.length + ' photo' + (aEnvoyer.length > 1 ? 's' : '') + ' ✓ Il t\'attend dans le Séquenceur.' : 'Envoyé ✓ Il t\'attend dans le Séquenceur.'), contact: 'Contact envoyé ✓ Il t\'attend dans le Hub.', mail: 'Mail envoyé ✓ Il t\'attend dans les brouillons du Hub.', tache: 'Tâche envoyée ✓ Elle arrivera dans ton app Tâches.',
+          intervention: (aEnvoyer.length ? aEnvoyer.length + ' photo' + (aEnvoyer.length > 1 ? 's' : '') + (avecTexte ? ' et texte' : '') + ' envoyé' + (avecTexte ? 's' : 'e' + (aEnvoyer.length > 1 ? 's' : '')) + ' ✓ Ils arriveront sur la fiche de l\'intervention dans le Hub.' : texteCorrige ? '' : donnees.remplace_texte ? 'Texte envoyé ✓ Il remplacera l\'ancien sur la fiche de l\'intervention dans le Hub.' : 'Texte envoyé ✓ Il arrivera sur la fiche de l\'intervention dans le Hub.')
+            + (texteCorrige ? ' Texte corrigé ✓ Il remplace celui que tu avais envoyé.' : '')
+            + (nbIgnorees ? ' ' + nbIgnorees + ' photo' + (nbIgnorees > 1 ? 's' : '') + ' déjà envoyée' + (nbIgnorees > 1 ? 's' : '') + ', pas renvoyée' + (nbIgnorees > 1 ? 's' : '') + '.' : '') })[type].trim(), 'ok');
+        if (envoiType === 'intervention') majModeTexte();
       } else if (r.status === 401) {
         statut('Clé d\'accès refusée : vérifie-la dans les réglages.', 'err');
       } else if (r.status === 404 || r.status === 403) {
