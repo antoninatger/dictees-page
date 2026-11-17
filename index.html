@@ -472,12 +472,19 @@
       boutonsInterventions();
     }).catch(function () { interventions = null; });
   }
-  /* Les 6 dernières interventions (déjà faites, la plus récente en haut) :
-     un toucher suffit pour y rattacher les photos. */
+  /* Les 6 dernières interventions (déjà commencées ou toutes proches, la plus
+     récente en haut) : un toucher suffit pour y rattacher les photos.
+     Une intervention sur plusieurs jours porte la date de sa dernière séance
+     (17/11/2026 : Actives, 17 et 18/11, n'apparaissait pas le 17) : on garde
+     celles qui ont commencé (« debut » si le Hub le donne) ou qui tombent
+     dans les 3 prochains jours. */
+  function jourIso(d) { var p = function (n) { return String(n).padStart(2, '0'); }; return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()); }
   function boutonsInterventions() {
-    var auj = new Date(), p = function (n) { return String(n).padStart(2, '0'); };
-    var jour = auj.getFullYear() + '-' + p(auj.getMonth() + 1) + '-' + p(auj.getDate());
-    var dernieres = (interventions || []).filter(function (it) { return it.date && it.date <= jour; })
+    var auj = new Date(), jour = jourIso(auj);
+    var limite = jourIso(new Date(auj.getFullYear(), auj.getMonth(), auj.getDate() + 3));
+    var dernieres = (interventions || []).filter(function (it) {
+      return it.date && (it.date <= limite || (it.debut && it.debut <= jour));
+    })
       .sort(function (a, b) { return a.date < b.date ? 1 : -1; }).slice(0, 6);
     $('i_choix').innerHTML = '';
     dernieres.forEach(function (it) {
