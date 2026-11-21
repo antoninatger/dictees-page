@@ -17,7 +17,7 @@
   label { display:block; font-weight:600; margin:14px 0 6px; }
   input, textarea, select { width:100%; font:inherit; color:inherit; background:var(--card); border:1px solid var(--bord); border-radius:10px; padding:12px; }
   textarea { min-height:40vh; resize:vertical; }
-  #f-contact textarea, #f-tache textarea { min-height:20vh; }
+  #f-contact textarea, #f-tache textarea, #f-sciwrite textarea { min-height:20vh; }
   .onglets { display:flex; flex-wrap:wrap; gap:4px; background:var(--card); border:1px solid var(--bord); border-radius:12px; padding:4px; }
   .onglets button { flex:1 1 30%; background:transparent; color:var(--txt); padding:10px 2px; font-size:.85rem; white-space:nowrap; }
   .onglets button.on { background:var(--acc); color:#fff; }
@@ -89,6 +89,7 @@
     <button type="button" data-type="tache">✅ Tâche</button>
     <button type="button" data-type="intervention">🏫 Interv.</button>
     <button type="button" data-type="video">🎬 Vidéo</button>
+    <button type="button" data-type="sciwrite">🔬 SciWrite</button>
   </div>
 
   <!-- Article : arrive dans les Brouillons du Séquenceur -->
@@ -216,6 +217,24 @@
     <p class="aide">Sur le PC, sur ta page Transfert : « 📥 Charger les vidéos en attente » les enregistre dans le dossier de ton choix. Sinon elles s'effacent seules au bout de 7 jours.</p>
   </section>
 
+  <!-- SciWrite : articles scientifiques (liens ou PDF) déposés sur Transfert,
+       que SciWrite vient chercher tout seul à son ouverture sur le PC -->
+  <section id="f-sciwrite" hidden>
+    <label for="s_liens">Liens des articles</label>
+    <textarea autocomplete="off" id="s_liens" placeholder="Colle le lien de l'article, ou son DOI (un par ligne)"></textarea>
+    <button class="secondaire" id="s_coller" type="button" style="width:100%;margin-top:8px">📋 Coller le lien</button>
+    <label for="s_pdf">PDF</label>
+    <input id="s_pdf" type="file" accept="application/pdf,.pdf,application/epub+zip,.epub" multiple>
+    <ul id="s_liste" class="v_liste"></ul>
+    <label for="s_note">Note</label>
+    <input autocomplete="off" id="s_note" placeholder="ex : pour le chapitre 2 (facultatif)">
+    <div id="s_boutons" style="margin-top:14px">
+      <button class="principal" id="s_envoyer" type="button" style="width:100%">🔬 Envoyer dans SciWrite</button>
+    </div>
+    <p class="aide">À la prochaine ouverture de SciWrite sur le PC, l'article est ajouté à ta bibliothèque et rangé tout seul dans la catégorie qui lui ressemble le plus, avec son PDF quand il est en accès libre. SciWrite te dit où il l'a mis, et tu peux changer la catégorie d'un clic.</p>
+    <p class="aide">Passe par ta page Transfert (mêmes réglages que l'onglet 🎬 Vidéo) : les PDF lourds passent sans problème. Ce qui n'est pas récupéré s'efface seul au bout de 7 jours.</p>
+  </section>
+
   <div class="rangee" id="rangee">
     <button class="secondaire" id="coller" type="button">Coller</button>
     <button class="principal" id="envoyer" type="button">Envoyer</button>
@@ -242,7 +261,7 @@
     <input id="transfert" type="url" inputmode="url" placeholder="https://transfert.….workers.dev" autocapitalize="off" autocorrect="off">
     <label for="tmdp">Mot de passe Transfert</label>
     <input id="tmdp" type="password" autocapitalize="off" autocorrect="off">
-    <p class="aide">Pour l'onglet 🎬 Vidéo : la même adresse et le même mot de passe que sur le PC.</p>
+    <p class="aide">Pour les onglets 🎬 Vidéo et 🔬 SciWrite : la même adresse et le même mot de passe que sur le PC.</p>
     <p class="aide">La clé reste enregistrée uniquement dans ce navigateur, sur ce téléphone. Elle n'est jamais publiée.</p>
     <button class="secondaire" id="sauver" type="button">Enregistrer les réglages</button>
   </details>
@@ -376,7 +395,8 @@
     document.querySelectorAll('.onglets button').forEach(function (b) { b.classList.toggle('on', b.dataset.type === t); });
     Object.keys(TYPES).forEach(function (k) { $('f-' + k).hidden = k !== t; });
     $('f-video').hidden = t !== 'video';
-    $('rangee').hidden = t === 'video';
+    $('f-sciwrite').hidden = t !== 'sciwrite';
+    $('rangee').hidden = t === 'video' || t === 'sciwrite';
     ecrire('type', t);
     $('publier').hidden = t !== 'article';
     statut('');
@@ -396,9 +416,10 @@
       c.addEventListener('change', function () { ecrire('reseaux', JSON.stringify(reseauxCoches())); });
     });
   })();
-  if (TYPES[lire('type')] || lire('type') === 'video') choisir(lire('type'));
+  if (TYPES[lire('type')] || lire('type') === 'video' || lire('type') === 'sciwrite') choisir(lire('type'));
   afficherHistorique();
   initVideos();
+  initSciwrite();
 
 
   /* ───── Vidéos ─────
@@ -573,6 +594,130 @@
         else if (derniere && derniere.status === 401) { $('reglages').open = true; statut('Mot de passe Transfert refusé : vérifie-le dans les réglages.', 'err'); }
         else if (derniere && derniere.status === 0 && !finies.length) statut('Transfert ne répond pas : vérifie l\'adresse dans les réglages, ou la connexion.', 'err');
         else statut((finies.length ? finies.length + ' envoyée(s), ' : '') + echecs + ' pas envoyée(s). Retouche « Envoyer » pour réessayer.', 'err');
+      });
+    });
+  }
+
+  /* ───── SciWrite ─────
+     Un seul envoi Transfert par appui : les PDF en fichiers, les liens dans
+     le message, qui commence par « 📚 SciWrite ». À son ouverture, SciWrite
+     (sur le PC) lit les envois ainsi marqués, ajoute et range les articles,
+     puis efface l'envoi. Pas marqué « téléphone » : le bouton « 📥 Charger
+     les vidéos en attente » de Transfert ne les prend pas. */
+  var MARQUE_SCIWRITE = '📚 SciWrite';
+  var pdfs = [];   // [{ fichier, etat, li }] comme les vidéos
+  var sEnvoi = false;
+  function liensSaisis() {
+    return $('s_liens').value.split(/[\s,;]+/).map(function (l) { return l.trim().replace(/[.,;)\]]+$/, ''); })
+      .filter(function (l) { return /^https?:\/\/\S+\.\S+/i.test(l) || /^(doi:\s*)?10\.\d{4,9}\/\S+$/i.test(l); })
+      .filter(function (l, i, a) { return a.indexOf(l) === i; });
+  }
+  function afficherPdfs() {
+    var ul = $('s_liste'); ul.innerHTML = '';
+    pdfs.forEach(function (v, i) {
+      var li = document.createElement('li');
+      li.innerHTML = '<div class="nom"></div><div class="info"></div><progress max="1" value="0" hidden></progress>';
+      li.querySelector('.nom').textContent = '📄 ' + v.fichier.name;
+      v.li = li; majVideo(v);
+      if (v.etat !== 'fini' && v.etat !== 'envoi') {
+        var b = document.createElement('button');
+        b.type = 'button'; b.className = 'secondaire'; b.textContent = '✕ Retirer';
+        b.style.cssText = 'padding:6px 10px;margin-top:6px;font-size:.85rem';
+        b.addEventListener('click', function () { if (sEnvoi) return; pdfs.splice(i, 1); afficherPdfs(); });
+        li.appendChild(b);
+      }
+      ul.appendChild(li);
+    });
+  }
+  // Un fichier vers un envoi déjà ouvert, en morceaux (comme une vidéo)
+  function televerser(v, id, n, tailleMorceau) {
+    var f = v.fichier, nb = Math.max(1, Math.ceil(f.size / tailleMorceau));
+    var parts = new Array(nb), enCours = {}, fait = 0, suivant = 0, cle, uploadId;
+    v.etat = 'envoi'; majVideo(v, 0, 'Préparation…');
+    function avancer() {
+      var t = fait; Object.keys(enCours).forEach(function (k) { t += enCours[k]; });
+      majVideo(v, t / f.size, 'Envoi : ' + taille(t) + ' sur ' + taille(f.size) + ' (' + Math.floor(100 * t / f.size) + ' %)');
+    }
+    function travailleur() {
+      if (suivant >= nb) return Promise.resolve();
+      var i = suivant++, morceau = f.slice(i * tailleMorceau, Math.min(f.size, (i + 1) * tailleMorceau));
+      var essai = function (k) {
+        enCours[i] = 0;
+        return tApi('/api/mpu/morceau?cle=' + encodeURIComponent(cle) + '&uploadId=' + encodeURIComponent(uploadId) + '&n=' + (i + 1), 'PUT', morceau,
+          function (o) { enCours[i] = o; avancer(); })
+          .catch(function (e) {
+            if (k >= 5 || e.status === 401) throw e;
+            enCours[i] = 0; avancer();
+            return pause(1500 * Math.pow(2, k)).then(function () { return essai(k + 1); });
+          });
+      };
+      return essai(1).then(function (part) { parts[i] = part; delete enCours[i]; fait += morceau.size; avancer(); return travailleur(); });
+    }
+    return tApi('/api/mpu/debut', 'POST', { id: id, n: n, nom: f.name, type: f.type || 'application/pdf' }).then(function (r) {
+      cle = r.cle; uploadId = r.uploadId;
+      return Promise.all([travailleur(), travailleur()]);
+    }).then(function () {
+      majVideo(v, 1, 'Finalisation…');
+      return tApi('/api/mpu/fin', 'POST', { cle: cle, uploadId: uploadId, parts: parts, taille: f.size });
+    }).then(function () { return { nom: f.name, cle: cle, taille: f.size }; }, function (e) {
+      if (cle) tApi('/api/mpu/annuler', 'POST', { cle: cle, uploadId: uploadId }).catch(function () {});
+      throw e;
+    });
+  }
+  function initSciwrite() {
+    $('s_pdf').addEventListener('change', function () {
+      Array.prototype.forEach.call(this.files || [], function (f) { if (f.size) pdfs.push({ fichier: f, etat: 'attente' }); });
+      this.value = '';
+      pdfs = pdfs.filter(function (v) { return v.etat !== 'fini'; });
+      afficherPdfs(); statut('');
+    });
+    $('s_liens').addEventListener('input', function () { ecrire('brouillon_s_liens', this.value); });
+    $('s_liens').value = lire('brouillon_s_liens');
+    $('s_coller').addEventListener('click', function () {
+      if (!navigator.clipboard || !navigator.clipboard.readText) { statut('Fais un appui long dans la case puis « Coller ».', 'err'); return; }
+      navigator.clipboard.readText().then(function (t) {
+        var v = $('s_liens').value.trim();
+        $('s_liens').value = (v ? v + '\n' : '') + t.trim(); ecrire('brouillon_s_liens', $('s_liens').value); statut('');
+      }).catch(function () { statut('Fais un appui long dans la case puis « Coller ».', 'err'); });
+    });
+    $('s_envoyer').addEventListener('click', function () {
+      if (sEnvoi) return;
+      if (!adresseTransfert() || !lire('tmdp')) { $('reglages').open = true; statut('Indique d\'abord l\'adresse et le mot de passe de ta page Transfert, dans les réglages en bas.', 'err'); return; }
+      var liens = liensSaisis(), aFaire = pdfs.filter(function (v) { return v.etat !== 'fini'; });
+      if ($('s_liens').value.trim() && !liens.length) { statut('Je ne reconnais pas de lien dans la case : colle une adresse qui commence par https://, ou un DOI (10.…).', 'err'); return; }
+      if (!liens.length && !aFaire.length) { statut('Colle le lien d\'un article ou choisis un PDF.', 'err'); return; }
+      var note = $('s_note').value.trim();
+      var message = [MARQUE_SCIWRITE].concat(note ? ['Note : ' + note.replace(/\s+/g, ' ')] : [], liens).join('\n');
+      if (message.length > 1900) { statut('Trop de liens d\'un coup : envoie-les en deux fois.', 'err'); return; }
+      sEnvoi = true; $('s_envoyer').disabled = $('s_pdf').disabled = true;
+      statut(aFaire.length ? 'Envoi en cours… Garde la page ouverte.' : 'Envoi…');
+      afficherPdfs();
+      var total = aFaire.reduce(function (s, v) { return s + v.fichier.size; }, 0), envoyes = [], id;
+      tApi('/api/envoi', 'POST', { taille: total }).then(function (info) {
+        id = info.id;
+        if (info.apres > info.quota && !confirm('Avec ces PDF, ' + taille(info.apres) + ' seront stockés sur Transfert, au-delà des 10 Go gratuits (quelques centimes au pire). Continuer ?')) throw new Error('annulé');
+        return aFaire.reduce(function (suite, v, k) {
+          return suite.then(function () {
+            return televerser(v, id, k, info.tailleMorceau || 50 * 1024 * 1024).then(function (f) { envoyes.push(f); v.etat = 'pret'; majVideo(v, 1, taille(v.fichier.size) + ' · envoyé, en attente de validation'); });
+          });
+        }, Promise.resolve());
+      }).then(function () {
+        return tApi('/api/envoi/valider', 'POST', { id: id, fichiers: envoyes, message: message, telephone: false });
+      }).then(function () {
+        aFaire.forEach(function (v) { v.etat = 'fini'; });
+        var n = liens.length + aFaire.length;
+        statut((n > 1 ? n + ' articles envoyés ✓ Ils seront ajoutés' : 'Article envoyé ✓ Il sera ajouté') + ' à SciWrite à sa prochaine ouverture sur le PC.', 'ok');
+        $('s_liens').value = ''; ecrire('brouillon_s_liens', ''); $('s_note').value = '';
+        pdfs = [];
+      }, function (e) {
+        aFaire.forEach(function (v) { if (v.etat !== 'fini') { v.etat = 'erreur'; v.erreur = e.message; } });
+        if (e.status === 401) { $('reglages').open = true; statut('Mot de passe Transfert refusé : vérifie-le dans les réglages.', 'err'); }
+        else if (e.status === 0) statut('Transfert ne répond pas : vérifie l\'adresse dans les réglages, ou la connexion.', 'err');
+        else if (e.message === 'annulé') statut('Envoi annulé.', 'err');
+        else statut('Pas envoyé (' + e.message + '). Retouche « Envoyer » pour réessayer.', 'err');
+      }).then(function () {
+        sEnvoi = false; $('s_envoyer').disabled = $('s_pdf').disabled = false;
+        afficherPdfs();
       });
     });
   }
