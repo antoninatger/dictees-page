@@ -18,8 +18,8 @@
   input, textarea, select { width:100%; font:inherit; color:inherit; background:var(--card); border:1px solid var(--bord); border-radius:10px; padding:12px; }
   textarea { min-height:40vh; resize:vertical; }
   #f-contact textarea, #f-tache textarea { min-height:20vh; }
-  .onglets { display:flex; gap:6px; background:var(--card); border:1px solid var(--bord); border-radius:12px; padding:4px; }
-  .onglets button { flex:1; background:transparent; color:var(--txt); padding:10px 2px; font-size:.85rem; white-space:nowrap; }
+  .onglets { display:flex; flex-wrap:wrap; gap:4px; background:var(--card); border:1px solid var(--bord); border-radius:12px; padding:4px; }
+  .onglets button { flex:1 1 30%; background:transparent; color:var(--txt); padding:10px 2px; font-size:.85rem; white-space:nowrap; }
   .onglets button.on { background:var(--acc); color:#fff; }
   .rangee { display:flex; gap:10px; margin-top:14px; }
   button { font:inherit; font-weight:600; border:0; border-radius:10px; padding:14px 16px; cursor:pointer; }
@@ -44,6 +44,14 @@
   .choix button.on { border-color:var(--acc); box-shadow:inset 0 0 0 2px var(--acc); }
   .choix.duo { flex-direction:row; margin-top:6px; }
   .choix.duo button { flex:1; }
+  .v_liste { list-style:none; margin:10px 0 0; padding:0; display:flex; flex-direction:column; gap:8px; }
+  .v_liste li { border:1px solid var(--bord); border-radius:10px; padding:10px 12px; background:var(--card); }
+  .v_liste .nom { font-weight:600; overflow-wrap:anywhere; }
+  .v_liste .info { color:var(--muted); font-size:.85rem; }
+  .v_liste li.fini { border-color:var(--ok); }
+  .v_liste li.erreur { border-color:var(--err); }
+  progress { width:100%; height:10px; margin-top:6px; accent-color:var(--acc); }
+  #v_boutons { display:flex; flex-direction:column; gap:10px; margin-top:14px; }
   .histo { list-style:none; margin:10px 0 0; padding:0; display:flex; flex-direction:column; gap:8px; }
   .histo li { border:1px solid var(--bord); border-radius:10px; padding:10px 12px; }
   .histo .quand { color:var(--muted); font-size:.82rem; }
@@ -74,6 +82,7 @@
     <button type="button" data-type="mail">✉️ Mail</button>
     <button type="button" data-type="tache">✅ Tâche</button>
     <button type="button" data-type="intervention">🏫 Interv.</button>
+    <button type="button" data-type="video">🎬 Vidéo</button>
   </div>
 
   <!-- Article : arrive dans les Brouillons du Séquenceur -->
@@ -183,7 +192,24 @@
     <p class="aide">Arrive dans le Hub, dans le dossier Photos de l'intervention.</p>
   </section>
 
-  <div class="rangee">
+  <!-- Vidéo : envoyée en morceaux sur GitHub, puis récupérée sur le PC
+       avec « 🎬 Charger les vidéos en attente » -->
+  <section id="f-video" hidden>
+    <label for="v_fichiers">Vidéos</label>
+    <input id="v_fichiers" type="file" accept="video/*" multiple>
+    <ul id="v_liste" class="v_liste"></ul>
+    <label for="v_note">Note</label>
+    <input autocomplete="off" id="v_note" placeholder="ex : Intervention lycée Jean Moulin (facultatif)">
+    <p class="aide">Les vidéos longues passent aussi : elles partent en morceaux de 20 Mo. Reste en Wi-Fi et garde la page ouverte pendant l'envoi.</p>
+    <div id="v_boutons">
+      <button class="principal" id="v_envoyer" type="button">📤 Envoyer sur mon PC</button>
+      <button class="secondaire" id="v_mail" type="button">✉️ M'envoyer par mail</button>
+    </div>
+    <p class="aide">Sur le PC : « 🎬 Charger les vidéos en attente » les enregistre dans le dossier de ton choix, puis les retire de GitHub.</p>
+    <p class="aide">« M'envoyer par mail » ouvre le partage du téléphone : choisis Gmail ou Outlook (au-delà de 25 Mo, Gmail met la vidéo sur Drive et envoie un lien).</p>
+  </section>
+
+  <div class="rangee" id="rangee">
     <button class="secondaire" id="coller" type="button">Coller</button>
     <button class="principal" id="envoyer" type="button">Envoyer</button>
   </div>
@@ -337,6 +363,8 @@
     type = t;
     document.querySelectorAll('.onglets button').forEach(function (b) { b.classList.toggle('on', b.dataset.type === t); });
     Object.keys(TYPES).forEach(function (k) { $('f-' + k).hidden = k !== t; });
+    $('f-video').hidden = t !== 'video';
+    $('rangee').hidden = t === 'video';
     ecrire('type', t);
     $('publier').hidden = t !== 'article';
     statut('');
@@ -356,8 +384,173 @@
       c.addEventListener('change', function () { ecrire('reseaux', JSON.stringify(reseauxCoches())); });
     });
   })();
-  if (TYPES[lire('type')]) choisir(lire('type'));
+  if (TYPES[lire('type')] || lire('type') === 'video') choisir(lire('type'));
   afficherHistorique();
+  initVideos();
+
+
+  /* ───── Vidéos ─────
+     Chaque vidéo part sur une branche à part du dépôt, « videos/<date>_<nom> »,
+     sans lien avec main : le fichier est découpé en morceaux de 20 Mo
+     (déposés comme blobs Git, 100 Mo au plus chez GitHub), puis un
+     manifest.json les liste. Le PC lit ces branches, recolle les morceaux,
+     enregistre la vidéo puis supprime la branche : rien ne reste dans
+     l'historique de main et GitHub efface les morceaux de lui-même. */
+  var MORCEAU = 20 * 1024 * 1024;
+  var videos = [];   // [{ fichier, etat, li, shas, branche }]
+  function taille(o) {
+    return o >= 1073741824 ? (o / 1073741824).toFixed(2).replace('.', ',') + ' Go'
+      : o >= 1048576 ? Math.round(o / 1048576) + ' Mo' : Math.max(1, Math.round(o / 1024)) + ' Ko';
+  }
+  function slug(t) {
+    return (t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+      .replace(/\.[a-z0-9]{2,4}$/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'video';
+  }
+  function afficherVideos() {
+    var ul = $('v_liste'); ul.innerHTML = '';
+    videos.forEach(function (v, i) {
+      var li = document.createElement('li');
+      li.innerHTML = '<div class="nom"></div><div class="info"></div><progress max="1" value="0" hidden></progress>';
+      li.querySelector('.nom').textContent = '🎬 ' + v.fichier.name;
+      v.li = li; majVideo(v);
+      if (v.etat === 'attente' || v.etat === 'erreur') {
+        var b = document.createElement('button');
+        b.type = 'button'; b.className = 'secondaire'; b.textContent = '✕ Retirer';
+        b.style.cssText = 'padding:6px 10px;margin-top:6px;font-size:.85rem';
+        b.addEventListener('click', function () { if (envoiEnCours) return; videos.splice(i, 1); afficherVideos(); });
+        li.appendChild(b);
+      }
+      ul.appendChild(li);
+    });
+  }
+  function majVideo(v, fraction, texte) {
+    if (!v.li) return;
+    var info = v.li.querySelector('.info'), barre = v.li.querySelector('progress');
+    v.li.className = v.etat === 'fini' ? 'fini' : v.etat === 'erreur' ? 'erreur' : '';
+    barre.hidden = v.etat !== 'envoi';
+    if (fraction != null) barre.value = fraction;
+    info.textContent = texte || (taille(v.fichier.size) + (v.etat === 'fini' ? ' · Envoyée ✓' : v.etat === 'erreur' ? ' · Pas envoyée, retouche « Envoyer » pour reprendre' : ''));
+  }
+
+  function api(chemin, methode, corps, progres) {
+    // XMLHttpRequest plutôt que fetch : il donne l'avancement de l'envoi.
+    return new Promise(function (ok, ko) {
+      var x = new XMLHttpRequest();
+      x.open(methode || 'GET', 'https://api.github.com/repos/' + encodeURIComponent(lire('compte')) + '/' + encodeURIComponent(lire('depot')) + '/' + chemin);
+      x.setRequestHeader('Authorization', 'Bearer ' + lire('cle'));
+      x.setRequestHeader('Accept', 'application/vnd.github+json');
+      if (progres) x.upload.onprogress = function (e) { if (e.lengthComputable) progres(e.loaded / e.total); };
+      x.onload = function () {
+        var r = null; try { r = JSON.parse(x.responseText); } catch (e) {}
+        if (x.status >= 200 && x.status < 300) ok(r); else { var err = new Error('GitHub ' + x.status); err.status = x.status; ko(err); }
+      };
+      x.onerror = function () { var err = new Error('réseau'); err.status = 0; ko(err); };
+      x.send(corps == null ? null : (typeof corps === 'string' ? corps : JSON.stringify(corps)));
+    });
+  }
+  function essayer(f, n) {   // 3 essais, sauf si la clé est refusée
+    return f().catch(function (e) {
+      if (n <= 1 || e.status === 401 || e.status === 403 || e.status === 404 || e.status === 422) throw e;
+      return new Promise(function (r) { setTimeout(r, 3000); }).then(function () { return essayer(f, n - 1); });
+    });
+  }
+  function base64De(blob) {
+    return new Promise(function (ok, ko) {
+      var r = new FileReader();
+      r.onload = function () { var s = String(r.result); ok(s.slice(s.indexOf(',') + 1)); };
+      r.onerror = function () { ko(new Error('lecture')); };
+      r.readAsDataURL(blob);
+    });
+  }
+
+  function envoyerVideo(v, note) {
+    var f = v.fichier, n = Math.max(1, Math.ceil(f.size / MORCEAU));
+    v.shas = v.shas || [];   // morceaux déjà déposés : un nouvel essai repart du suivant
+    v.etat = 'envoi';
+    var suite = Promise.resolve();
+    for (var i = 0; i < n; i++) (function (i) {
+      suite = suite.then(function () {
+        if (v.shas[i]) return;
+        var debut = i * MORCEAU, fin = Math.min(f.size, debut + MORCEAU);
+        var dire = function (k) {
+          majVideo(v, (debut + (fin - debut) * k * 0.95) / f.size,
+            'Envoi : ' + taille(debut + (fin - debut) * k) + ' sur ' + taille(f.size) + (n > 1 ? ' (morceau ' + (i + 1) + '/' + n + ')' : ''));
+        };
+        dire(0);
+        return essayer(function () {
+          return base64De(f.slice(debut, fin)).then(function (b64) {
+            return api('git/blobs', 'POST', '{"encoding":"base64","content":"' + b64 + '"}', dire);
+          });
+        }, 3).then(function (r) { v.shas[i] = r.sha; });
+      });
+    })(i);
+    return suite.then(function () {
+      majVideo(v, 0.97, 'Finalisation…');
+      var d = new Date(), p = function (k) { return String(k).padStart(2, '0'); };
+      var id = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + '_' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()) + '_' + slug(f.name);
+      var manifeste = { type: 'video', nom: f.name, taille: f.size, mime: f.type || 'video/mp4', note: note || '',
+        envoye_le: d.toISOString(), modifie_le: f.lastModified ? new Date(f.lastModified).toISOString() : '',
+        morceaux: v.shas.map(function (sha, i) { return { sha: sha, taille: Math.min(MORCEAU, f.size - i * MORCEAU) }; }) };
+      return essayer(function () {
+        return api('git/blobs', 'POST', { encoding: 'base64', content: base64Utf8(JSON.stringify(manifeste, null, 2)) });
+      }, 3).then(function (m) {
+        var arbre = [{ path: 'manifest.json', mode: '100644', type: 'blob', sha: m.sha }];
+        v.shas.forEach(function (sha, i) { arbre.push({ path: 'morceau-' + String(i + 1).padStart(4, '0'), mode: '100644', type: 'blob', sha: sha }); });
+        return essayer(function () { return api('git/trees', 'POST', { tree: arbre }); }, 3);
+      }).then(function (t) {
+        return essayer(function () { return api('git/commits', 'POST', { message: 'Vidéo : ' + f.name, tree: t.sha, parents: [] }); }, 3);
+      }).then(function (c) {
+        return essayer(function () { return api('git/refs', 'POST', { ref: 'refs/heads/videos/' + id, sha: c.sha }); }, 3);
+      }).then(function () { v.etat = 'fini'; v.branche = 'videos/' + id; majVideo(v); });
+    });
+  }
+
+  var envoiEnCours = false;
+  function initVideos() {
+    $('v_fichiers').addEventListener('change', function () {
+      Array.prototype.forEach.call(this.files || [], function (f) { videos.push({ fichier: f, etat: 'attente' }); });
+      this.value = '';
+      afficherVideos(); statut('');
+    });
+    $('v_envoyer').addEventListener('click', function () {
+      if (envoiEnCours) return;
+      if (!lire('cle') || !lire('compte') || !lire('depot')) { $('reglages').open = true; statut('Remplis d\'abord les réglages en bas de la page.', 'err'); return; }
+      var aFaire = videos.filter(function (v) { return v.etat !== 'fini'; });
+      if (!aFaire.length) { statut(videos.length ? 'Ces vidéos sont déjà envoyées.' : 'Choisis d\'abord une vidéo.', 'err'); return; }
+      envoiEnCours = true; $('v_envoyer').disabled = $('v_fichiers').disabled = true;
+      statut('Envoi en cours… Garde la page ouverte.');
+      var verrou = null;   // l'écran reste allumé pendant l'envoi
+      try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (w) { verrou = w; }, function () {}); } catch (e) {}
+      var note = $('v_note').value.trim(), echecs = 0, derniere = null;
+      aFaire.reduce(function (suite, v) {
+        return suite.then(function () {
+          return envoyerVideo(v, note).catch(function (e) { v.etat = 'erreur'; echecs++; derniere = e; majVideo(v); });
+        });
+      }, Promise.resolve()).then(function () {
+        envoiEnCours = false; $('v_envoyer').disabled = $('v_fichiers').disabled = false;
+        try { if (verrou) verrou.release(); } catch (e) {}
+        var ok = aFaire.length - echecs;
+        afficherVideos();
+        if (!echecs) {
+          $('v_note').value = '';
+          statut((ok > 1 ? ok + ' vidéos envoyées' : 'Vidéo envoyée') + ' ✓ Elle' + (ok > 1 ? 's t\'attendent' : ' t\'attend') + ' sur ton PC : « 🎬 Charger les vidéos en attente ».', 'ok');
+        } else if (derniere && derniere.status === 401) statut('Clé d\'accès refusée : vérifie-la dans les réglages.', 'err');
+        else if (derniere && (derniere.status === 403 || derniere.status === 404)) statut('Dépôt introuvable ou clé sans droit d\'écriture sur ce dépôt.', 'err');
+        else statut((ok ? ok + ' envoyée(s), ' : '') + echecs + ' pas envoyée(s) (connexion coupée ?). Retouche « Envoyer » : ça reprend où ça s\'est arrêté.', 'err');
+      });
+    });
+    $('v_mail').addEventListener('click', function () {
+      var fichiers = videos.map(function (v) { return v.fichier; });
+      if (!fichiers.length) { statut('Choisis d\'abord une vidéo.', 'err'); return; }
+      var note = $('v_note').value.trim(), titre = note || (fichiers.length > 1 ? fichiers.length + ' vidéos' : fichiers[0].name);
+      if (!navigator.canShare || !navigator.canShare({ files: fichiers })) {
+        statut('Ce navigateur ne sait pas partager de vidéo : ouvre la page dans Chrome ou Safari.', 'err'); return;
+      }
+      navigator.share({ files: fichiers, title: titre, text: note }).then(function () {
+        statut('Partage ouvert ✓ Envoie-le-toi depuis l\'appli de mail.', 'ok');
+      }, function (e) { if (e && e.name !== 'AbortError') statut('Le partage n\'a pas pu s\'ouvrir.', 'err'); });
+    });
+  }
 
   $('sauver').addEventListener('click', function () {
     CLES.forEach(function (k) { ecrire(k, $(k).value.trim()); });
