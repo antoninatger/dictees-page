@@ -207,7 +207,7 @@
     <label for="v_note">Note</label>
     <input autocomplete="off" id="v_note" placeholder="ex : Intervention lycée Jean Moulin (facultatif)">
     <label class="coche"><input type="checkbox" id="v_mail_oui"> ✉️ M'envoyer aussi le lien par mail</label>
-    <input id="v_mail" type="email" inputmode="email" autocapitalize="off" autocorrect="off" placeholder="ton adresse mail" hidden>
+    <p class="aide" id="v_mail_aide" hidden>Transfert t'écrit tout seul depuis contact@antoninatger.com, sans rien ouvrir sur le téléphone.</p>
     <div id="v_boutons">
       <button class="principal" id="v_envoyer" type="button">📤 Envoyer sur mon PC</button>
     </div>
@@ -500,7 +500,7 @@
     var sujet = finies.length > 1 ? finies.length + ' vidéos du téléphone' : 'Vidéo du téléphone : ' + finies[0].fichier.name;
     var corps = (note ? note + '\n\n' : '') + finies.map(function (v) { return v.fichier.name + ' (' + taille(v.fichier.size) + ') :\n' + v.lien; }).join('\n\n') +
       '\n\nLiens valables 7 jours. Sur le PC : page Transfert, « 📥 Charger les vidéos en attente ».';
-    return 'mailto:' + encodeURIComponent($('v_mail').value.trim()) + '?subject=' + encodeURIComponent(sujet) + '&body=' + encodeURIComponent(corps);
+    return 'mailto:?subject=' + encodeURIComponent(sujet) + '&body=' + encodeURIComponent(corps);
   }
   function afficherResultat(finies, note) {
     var r = $('v_resultat'); r.innerHTML = ''; r.hidden = !finies.length;
@@ -510,7 +510,7 @@
     r.appendChild(titre);
     finies.forEach(function (v) { var d = document.createElement('div'); d.className = 'lien'; d.textContent = v.lien; r.appendChild(d); });
     var actions = document.createElement('div'); actions.className = 'actions';
-    var a = document.createElement('a'); a.className = 'secondaire'; a.href = texteMail(finies, note); a.textContent = '✉️ Envoyer le lien par mail';
+    var a = document.createElement('a'); a.className = 'secondaire'; a.href = texteMail(finies, note); a.textContent = '✉️ Préparer un mail';
     a.style.cssText = 'display:block;border-radius:10px;padding:12px;font-weight:600;color:var(--txt)';
     var c = document.createElement('button'); c.type = 'button'; c.className = 'secondaire'; c.textContent = '📋 Copier';
     c.addEventListener('click', function () {
@@ -522,11 +522,9 @@
   }
 
   function initVideos() {
-    $('v_mail').value = lire('v_mail');
     $('v_mail_oui').checked = lire('v_mail_oui') === '1';
-    $('v_mail').hidden = !$('v_mail_oui').checked;
-    $('v_mail_oui').addEventListener('change', function () { ecrire('v_mail_oui', this.checked ? '1' : ''); $('v_mail').hidden = !this.checked; if (this.checked && !$('v_mail').value) $('v_mail').focus(); });
-    $('v_mail').addEventListener('input', function () { ecrire('v_mail', this.value.trim()); });
+    $('v_mail_aide').hidden = !$('v_mail_oui').checked;
+    $('v_mail_oui').addEventListener('change', function () { ecrire('v_mail_oui', this.checked ? '1' : ''); $('v_mail_aide').hidden = !this.checked; });
     $('v_fichiers').addEventListener('change', function () {
       Array.prototype.forEach.call(this.files || [], function (f) { if (f.size) videos.push({ fichier: f, etat: 'attente' }); });
       this.value = '';
@@ -539,7 +537,6 @@
       var aFaire = videos.filter(function (v) { return v.etat !== 'fini'; });
       if (!aFaire.length) { statut(videos.length ? 'Ces vidéos sont déjà envoyées.' : 'Choisis d\'abord une vidéo.', 'err'); return; }
       var avecMail = $('v_mail_oui').checked;
-      if (avecMail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test($('v_mail').value.trim())) { statut('Indique ton adresse mail, ou décoche « M\'envoyer aussi le lien par mail ».', 'err'); return; }
       envoiEnCours = true; $('v_envoyer').disabled = $('v_fichiers').disabled = true;
       $('v_resultat').hidden = true;
       statut('Envoi en cours… Garde la page ouverte.');
@@ -561,12 +558,18 @@
         try { if (verrou) verrou.release(); } catch (e) {}
         afficherVideos();
         var finies = aFaire.filter(function (v) { return v.etat === 'fini'; }), echecs = aFaire.length - finies.length;
-        var lienMail = afficherResultat(finies, note);
-        if (finies.length) {
-          if (!echecs) $('v_note').value = '';
-          if (avecMail && lienMail) { try { location.href = lienMail.href; } catch (e) {} }
+        afficherResultat(finies, note);
+        if (finies.length && !echecs) $('v_note').value = '';
+        var msgOk = (finies.length > 1 ? finies.length + ' vidéos envoyées ✓ Elles t\'attendent' : 'Vidéo envoyée ✓ Elle t\'attend') + ' sur Transfert : « 📥 Charger les vidéos en attente » sur le PC.';
+        if (!echecs) statut(msgOk, 'ok');
+        if (avecMail && finies.length) {
+          var ids = finies.map(function (v) { return v.lien.split('/d/')[1]; });
+          tApi('/api/mail', 'POST', { ids: ids, note: note }).then(function (r) {
+            if (!echecs) statut(msgOk + ' Lien envoyé par mail à ' + ((r && r.pour) || 'ta boîte') + '.', 'ok');
+          }, function (e) {
+            statut((echecs ? '' : msgOk + ' ') + 'Le mail n\'est pas parti (' + e.message + ') : « Préparer un mail » ci-dessous.', 'err');
+          });
         }
-        if (!echecs) statut((finies.length > 1 ? finies.length + ' vidéos envoyées ✓ Elles t\'attendent' : 'Vidéo envoyée ✓ Elle t\'attend') + ' sur Transfert : « 📥 Charger les vidéos en attente » sur le PC.', 'ok');
         else if (derniere && derniere.status === 401) { $('reglages').open = true; statut('Mot de passe Transfert refusé : vérifie-le dans les réglages.', 'err'); }
         else if (derniere && derniere.status === 0 && !finies.length) statut('Transfert ne répond pas : vérifie l\'adresse dans les réglages, ou la connexion.', 'err');
         else statut((finies.length ? finies.length + ' envoyée(s), ' : '') + echecs + ' pas envoyée(s). Retouche « Envoyer » pour réessayer.', 'err');
