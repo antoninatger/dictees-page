@@ -52,6 +52,12 @@
   .v_liste li.erreur { border-color:var(--err); }
   progress { width:100%; height:10px; margin-top:6px; accent-color:var(--acc); }
   #v_boutons { display:flex; flex-direction:column; gap:10px; margin-top:14px; }
+  label.coche { display:flex; align-items:center; gap:8px; font-weight:600; margin:16px 0 6px; }
+  label.coche input { width:auto; margin:0; }
+  #v_resultat { margin-top:14px; background:var(--card); border:1px solid var(--ok); border-radius:10px; padding:12px; }
+  #v_resultat .lien { overflow-wrap:anywhere; font-size:.9rem; color:var(--muted); margin:4px 0 10px; }
+  #v_resultat .actions { display:flex; gap:8px; flex-wrap:wrap; }
+  #v_resultat .actions > * { flex:1; text-align:center; text-decoration:none; }
   .histo { list-style:none; margin:10px 0 0; padding:0; display:flex; flex-direction:column; gap:8px; }
   .histo li { border:1px solid var(--bord); border-radius:10px; padding:10px 12px; }
   .histo .quand { color:var(--muted); font-size:.82rem; }
@@ -192,21 +198,22 @@
     <p class="aide">Arrive dans le Hub, dans le dossier Photos de l'intervention.</p>
   </section>
 
-  <!-- Vidéo : envoyée en morceaux sur GitHub, puis récupérée sur le PC
-       avec « 🎬 Charger les vidéos en attente » -->
+  <!-- Vidéo : envoyée sur Transfert (Cloudflare), puis récupérée sur le PC
+       avec « 📥 Charger les vidéos en attente » de la page Transfert -->
   <section id="f-video" hidden>
     <label for="v_fichiers">Vidéos</label>
     <input id="v_fichiers" type="file" accept="video/*" multiple>
     <ul id="v_liste" class="v_liste"></ul>
     <label for="v_note">Note</label>
     <input autocomplete="off" id="v_note" placeholder="ex : Intervention lycée Jean Moulin (facultatif)">
-    <p class="aide">Les vidéos longues passent aussi : elles partent en morceaux de 20 Mo. Reste en Wi-Fi et garde la page ouverte pendant l'envoi.</p>
+    <label class="coche"><input type="checkbox" id="v_mail_oui"> ✉️ M'envoyer aussi le lien par mail</label>
+    <input id="v_mail" type="email" inputmode="email" autocapitalize="off" autocorrect="off" placeholder="ton adresse mail" hidden>
     <div id="v_boutons">
       <button class="principal" id="v_envoyer" type="button">📤 Envoyer sur mon PC</button>
-      <button class="secondaire" id="v_mail" type="button">✉️ M'envoyer par mail</button>
     </div>
-    <p class="aide">Sur le PC : « 🎬 Charger les vidéos en attente » les enregistre dans le dossier de ton choix, puis les retire de GitHub.</p>
-    <p class="aide">« M'envoyer par mail » ouvre le partage du téléphone : choisis Gmail ou Outlook (au-delà de 25 Mo, Gmail met la vidéo sur Drive et envoie un lien).</p>
+    <div id="v_resultat" hidden></div>
+    <p class="aide">Passe par ta page Transfert : pas de limite de taille, les vidéos partent en morceaux de 50 Mo. Reste en Wi-Fi et garde la page ouverte pendant l'envoi.</p>
+    <p class="aide">Sur le PC, sur ta page Transfert : « 📥 Charger les vidéos en attente » les enregistre dans le dossier de ton choix. Sinon elles s'effacent seules au bout de 7 jours.</p>
   </section>
 
   <div class="rangee" id="rangee">
@@ -231,6 +238,11 @@
     <input id="depot" value="dictees" autocapitalize="off" autocorrect="off">
     <label for="cle">Clé d'accès GitHub</label>
     <input id="cle" type="password" placeholder="github_pat_…" autocapitalize="off" autocorrect="off">
+    <label for="transfert">Adresse de ta page Transfert</label>
+    <input id="transfert" type="url" inputmode="url" placeholder="https://transfert.….workers.dev" autocapitalize="off" autocorrect="off">
+    <label for="tmdp">Mot de passe Transfert</label>
+    <input id="tmdp" type="password" autocapitalize="off" autocorrect="off">
+    <p class="aide">Pour l'onglet 🎬 Vidéo : la même adresse et le même mot de passe que sur le PC.</p>
     <p class="aide">La clé reste enregistrée uniquement dans ce navigateur, sur ce téléphone. Elle n'est jamais publiée.</p>
     <button class="secondaire" id="sauver" type="button">Enregistrer les réglages</button>
   </details>
@@ -238,7 +250,7 @@
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
-  var CLES = ['compte', 'depot', 'cle'];
+  var CLES = ['compte', 'depot', 'cle', 'transfert', 'tmdp'];
 
   /* Champs de chaque type : id du champ → clé dans le fichier envoyé.
      `texte` désigne la grande case où « Coller » écrit. `dossier` : où le
@@ -390,21 +402,15 @@
 
 
   /* ───── Vidéos ─────
-     Chaque vidéo part sur une branche à part du dépôt, « videos/<date>_<nom> »,
-     sans lien avec main : le fichier est découpé en morceaux de 20 Mo
-     (déposés comme blobs Git, 100 Mo au plus chez GitHub), puis un
-     manifest.json les liste. Le PC lit ces branches, recolle les morceaux,
-     enregistre la vidéo puis supprime la branche : rien ne reste dans
-     l'historique de main et GitHub efface les morceaux de lui-même. */
-  var MORCEAU = 20 * 1024 * 1024;
-  var videos = [];   // [{ fichier, etat, li, shas, branche }]
+     Envoyées sur ta page Transfert (Cloudflare R2, pas de limite de taille),
+     comme depuis le PC, mais marquées « téléphone » : sur le PC, le bouton
+     « 📥 Charger les vidéos en attente » de Transfert les enregistre puis
+     les efface. Chaque vidéo a son propre lien (valable 7 jours). */
+  var videos = [];   // [{ fichier, etat, li, lien }]
+  var envoiEnCours = false;
   function taille(o) {
-    return o >= 1073741824 ? (o / 1073741824).toFixed(2).replace('.', ',') + ' Go'
-      : o >= 1048576 ? Math.round(o / 1048576) + ' Mo' : Math.max(1, Math.round(o / 1024)) + ' Ko';
-  }
-  function slug(t) {
-    return (t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
-      .replace(/\.[a-z0-9]{2,4}$/, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'video';
+    return o >= 1e9 ? (o / 1e9).toFixed(2).replace('.', ',') + ' Go'
+      : o >= 1e6 ? Math.round(o / 1e6) + ' Mo' : Math.max(1, Math.round(o / 1e3)) + ' Ko';
   }
   function afficherVideos() {
     var ul = $('v_liste'); ul.innerHTML = '';
@@ -413,7 +419,7 @@
       li.innerHTML = '<div class="nom"></div><div class="info"></div><progress max="1" value="0" hidden></progress>';
       li.querySelector('.nom').textContent = '🎬 ' + v.fichier.name;
       v.li = li; majVideo(v);
-      if (v.etat === 'attente' || v.etat === 'erreur') {
+      if (v.etat !== 'fini' && v.etat !== 'envoi') {
         var b = document.createElement('button');
         b.type = 'button'; b.className = 'secondaire'; b.textContent = '✕ Retirer';
         b.style.cssText = 'padding:6px 10px;margin-top:6px;font-size:.85rem';
@@ -425,130 +431,146 @@
   }
   function majVideo(v, fraction, texte) {
     if (!v.li) return;
-    var info = v.li.querySelector('.info'), barre = v.li.querySelector('progress');
+    var barre = v.li.querySelector('progress');
     v.li.className = v.etat === 'fini' ? 'fini' : v.etat === 'erreur' ? 'erreur' : '';
     barre.hidden = v.etat !== 'envoi';
     if (fraction != null) barre.value = fraction;
-    info.textContent = texte || (taille(v.fichier.size) + (v.etat === 'fini' ? ' · Envoyée ✓' : v.etat === 'erreur' ? ' · Pas envoyée, retouche « Envoyer » pour reprendre' : ''));
+    v.li.querySelector('.info').textContent = texte || (taille(v.fichier.size) +
+      (v.etat === 'fini' ? ' · Envoyée ✓' : v.etat === 'erreur' ? ' · Pas envoyée' + (v.erreur ? ' (' + v.erreur + ')' : '') + ', retouche « Envoyer »' : ''));
   }
-
-  function api(chemin, methode, corps, progres) {
-    // XMLHttpRequest plutôt que fetch : il donne l'avancement de l'envoi.
+  function adresseTransfert() { return lire('transfert').trim().replace(/\/+$/, ''); }
+  function tApi(chemin, methode, corps, progres) {
     return new Promise(function (ok, ko) {
       var x = new XMLHttpRequest();
-      x.open(methode || 'GET', 'https://api.github.com/repos/' + encodeURIComponent(lire('compte')) + '/' + encodeURIComponent(lire('depot')) + '/' + chemin);
-      x.setRequestHeader('Authorization', 'Bearer ' + lire('cle'));
-      x.setRequestHeader('Accept', 'application/vnd.github+json');
-      if (progres) x.upload.onprogress = function (e) { if (e.lengthComputable) progres(e.loaded / e.total); };
+      x.open(methode || 'GET', adresseTransfert() + chemin);
+      x.setRequestHeader('x-mot-de-passe', lire('tmdp'));
+      if (corps != null && !(corps instanceof Blob)) { x.setRequestHeader('content-type', 'application/json'); corps = JSON.stringify(corps); }
+      if (progres) x.upload.onprogress = function (e) { if (e.lengthComputable) progres(e.loaded); };
       x.onload = function () {
         var r = null; try { r = JSON.parse(x.responseText); } catch (e) {}
-        if (x.status >= 200 && x.status < 300) ok(r); else { var err = new Error('GitHub ' + x.status); err.status = x.status; ko(err); }
+        if (x.status >= 200 && x.status < 300) ok(r);
+        else { var err = new Error(x.status === 401 ? 'mot de passe refusé' : (r && r.erreur) || ('erreur ' + x.status)); err.status = x.status; ko(err); }
       };
-      x.onerror = function () { var err = new Error('réseau'); err.status = 0; ko(err); };
-      x.send(corps == null ? null : (typeof corps === 'string' ? corps : JSON.stringify(corps)));
+      x.onerror = function () { var err = new Error('pas de connexion'); err.status = 0; ko(err); };
+      x.send(corps == null ? null : corps);
     });
   }
-  function essayer(f, n) {   // 3 essais, sauf si la clé est refusée
-    return f().catch(function (e) {
-      if (n <= 1 || e.status === 401 || e.status === 403 || e.status === 404 || e.status === 422) throw e;
-      return new Promise(function (r) { setTimeout(r, 3000); }).then(function () { return essayer(f, n - 1); });
-    });
-  }
-  function base64De(blob) {
-    return new Promise(function (ok, ko) {
-      var r = new FileReader();
-      r.onload = function () { var s = String(r.result); ok(s.slice(s.indexOf(',') + 1)); };
-      r.onerror = function () { ko(new Error('lecture')); };
-      r.readAsDataURL(blob);
-    });
-  }
+  function pause(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
-  function envoyerVideo(v, note) {
-    var f = v.fichier, n = Math.max(1, Math.ceil(f.size / MORCEAU));
-    v.shas = v.shas || [];   // morceaux déjà déposés : un nouvel essai repart du suivant
-    v.etat = 'envoi';
-    var suite = Promise.resolve();
-    for (var i = 0; i < n; i++) (function (i) {
-      suite = suite.then(function () {
-        if (v.shas[i]) return;
-        var debut = i * MORCEAU, fin = Math.min(f.size, debut + MORCEAU);
-        var dire = function (k) {
-          majVideo(v, (debut + (fin - debut) * k * 0.95) / f.size,
-            'Envoi : ' + taille(debut + (fin - debut) * k) + ' sur ' + taille(f.size) + (n > 1 ? ' (morceau ' + (i + 1) + '/' + n + ')' : ''));
-        };
-        dire(0);
-        return essayer(function () {
-          return base64De(f.slice(debut, fin)).then(function (b64) {
-            return api('git/blobs', 'POST', '{"encoding":"base64","content":"' + b64 + '"}', dire);
+  function envoyerVideo(v, id, tailleMorceau, note) {
+    var f = v.fichier, nb = Math.max(1, Math.ceil(f.size / tailleMorceau));
+    var parts = new Array(nb), enCours = {}, fait = 0, suivant = 0, cle, uploadId;
+    v.etat = 'envoi'; majVideo(v, 0, 'Préparation…');
+    function avancer() {
+      var t = fait; Object.keys(enCours).forEach(function (k) { t += enCours[k]; });
+      majVideo(v, t / f.size, 'Envoi : ' + taille(t) + ' sur ' + taille(f.size) + ' (' + Math.floor(100 * t / f.size) + ' %)');
+    }
+    function travailleur() {
+      if (suivant >= nb) return Promise.resolve();
+      var i = suivant++, morceau = f.slice(i * tailleMorceau, Math.min(f.size, (i + 1) * tailleMorceau));
+      var essai = function (n) {
+        enCours[i] = 0;
+        return tApi('/api/mpu/morceau?cle=' + encodeURIComponent(cle) + '&uploadId=' + encodeURIComponent(uploadId) + '&n=' + (i + 1), 'PUT', morceau,
+          function (o) { enCours[i] = o; avancer(); })
+          .catch(function (e) {
+            if (n >= 5 || e.status === 401) throw e;
+            enCours[i] = 0; avancer();
+            return pause(1500 * Math.pow(2, n)).then(function () { return essai(n + 1); });
           });
-        }, 3).then(function (r) { v.shas[i] = r.sha; });
-      });
-    })(i);
-    return suite.then(function () {
-      majVideo(v, 0.97, 'Finalisation…');
-      var d = new Date(), p = function (k) { return String(k).padStart(2, '0'); };
-      var id = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + '_' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds()) + '_' + slug(f.name);
-      var manifeste = { type: 'video', nom: f.name, taille: f.size, mime: f.type || 'video/mp4', note: note || '',
-        envoye_le: d.toISOString(), modifie_le: f.lastModified ? new Date(f.lastModified).toISOString() : '',
-        morceaux: v.shas.map(function (sha, i) { return { sha: sha, taille: Math.min(MORCEAU, f.size - i * MORCEAU) }; }) };
-      return essayer(function () {
-        return api('git/blobs', 'POST', { encoding: 'base64', content: base64Utf8(JSON.stringify(manifeste, null, 2)) });
-      }, 3).then(function (m) {
-        var arbre = [{ path: 'manifest.json', mode: '100644', type: 'blob', sha: m.sha }];
-        v.shas.forEach(function (sha, i) { arbre.push({ path: 'morceau-' + String(i + 1).padStart(4, '0'), mode: '100644', type: 'blob', sha: sha }); });
-        return essayer(function () { return api('git/trees', 'POST', { tree: arbre }); }, 3);
-      }).then(function (t) {
-        return essayer(function () { return api('git/commits', 'POST', { message: 'Vidéo : ' + f.name, tree: t.sha, parents: [] }); }, 3);
-      }).then(function (c) {
-        return essayer(function () { return api('git/refs', 'POST', { ref: 'refs/heads/videos/' + id, sha: c.sha }); }, 3);
-      }).then(function () { v.etat = 'fini'; v.branche = 'videos/' + id; majVideo(v); });
+      };
+      return essai(1).then(function (part) { parts[i] = part; delete enCours[i]; fait += morceau.size; avancer(); return travailleur(); });
+    }
+    return tApi('/api/mpu/debut', 'POST', { id: id, n: 0, nom: f.name, type: f.type || 'video/mp4' }).then(function (r) {
+      cle = r.cle; uploadId = r.uploadId;
+      return Promise.all([travailleur(), travailleur()]);   // deux morceaux à la fois
+    }).then(function () {
+      majVideo(v, 1, 'Finalisation…');
+      return tApi('/api/mpu/fin', 'POST', { cle: cle, uploadId: uploadId, parts: parts, taille: f.size });
+    }).then(function () {
+      return tApi('/api/envoi/valider', 'POST', { id: id, fichiers: [{ nom: f.name, cle: cle, taille: f.size }], message: note, telephone: true });
+    }).then(function () {
+      v.etat = 'fini'; v.lien = adresseTransfert() + '/d/' + id; majVideo(v);
+    }, function (e) {
+      if (cle) tApi('/api/mpu/annuler', 'POST', { cle: cle, uploadId: uploadId }).catch(function () {});
+      throw e;
     });
   }
 
-  var envoiEnCours = false;
+  function texteMail(finies, note) {
+    var sujet = finies.length > 1 ? finies.length + ' vidéos du téléphone' : 'Vidéo du téléphone : ' + finies[0].fichier.name;
+    var corps = (note ? note + '\n\n' : '') + finies.map(function (v) { return v.fichier.name + ' (' + taille(v.fichier.size) + ') :\n' + v.lien; }).join('\n\n') +
+      '\n\nLiens valables 7 jours. Sur le PC : page Transfert, « 📥 Charger les vidéos en attente ».';
+    return 'mailto:' + encodeURIComponent($('v_mail').value.trim()) + '?subject=' + encodeURIComponent(sujet) + '&body=' + encodeURIComponent(corps);
+  }
+  function afficherResultat(finies, note) {
+    var r = $('v_resultat'); r.innerHTML = ''; r.hidden = !finies.length;
+    if (!finies.length) return;
+    var titre = document.createElement('div'); titre.style.fontWeight = '600';
+    titre.textContent = finies.length > 1 ? 'Liens des vidéos' : 'Lien de la vidéo';
+    r.appendChild(titre);
+    finies.forEach(function (v) { var d = document.createElement('div'); d.className = 'lien'; d.textContent = v.lien; r.appendChild(d); });
+    var actions = document.createElement('div'); actions.className = 'actions';
+    var a = document.createElement('a'); a.className = 'secondaire'; a.href = texteMail(finies, note); a.textContent = '✉️ Envoyer le lien par mail';
+    a.style.cssText = 'display:block;border-radius:10px;padding:12px;font-weight:600;color:var(--txt)';
+    var c = document.createElement('button'); c.type = 'button'; c.className = 'secondaire'; c.textContent = '📋 Copier';
+    c.addEventListener('click', function () {
+      var t = finies.map(function (v) { return v.lien; }).join('\n');
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(function () { c.textContent = 'Copié ✓'; }, function () {});
+    });
+    actions.appendChild(a); actions.appendChild(c); r.appendChild(actions);
+    return a;
+  }
+
   function initVideos() {
+    $('v_mail').value = lire('v_mail');
+    $('v_mail_oui').checked = lire('v_mail_oui') === '1';
+    $('v_mail').hidden = !$('v_mail_oui').checked;
+    $('v_mail_oui').addEventListener('change', function () { ecrire('v_mail_oui', this.checked ? '1' : ''); $('v_mail').hidden = !this.checked; if (this.checked && !$('v_mail').value) $('v_mail').focus(); });
+    $('v_mail').addEventListener('input', function () { ecrire('v_mail', this.value.trim()); });
     $('v_fichiers').addEventListener('change', function () {
-      Array.prototype.forEach.call(this.files || [], function (f) { videos.push({ fichier: f, etat: 'attente' }); });
+      Array.prototype.forEach.call(this.files || [], function (f) { if (f.size) videos.push({ fichier: f, etat: 'attente' }); });
       this.value = '';
-      afficherVideos(); statut('');
+      videos = videos.filter(function (v) { return v.etat !== 'fini'; }).concat([]);
+      afficherVideos(); $('v_resultat').hidden = true; statut('');
     });
     $('v_envoyer').addEventListener('click', function () {
       if (envoiEnCours) return;
-      if (!lire('cle') || !lire('compte') || !lire('depot')) { $('reglages').open = true; statut('Remplis d\'abord les réglages en bas de la page.', 'err'); return; }
+      if (!adresseTransfert() || !lire('tmdp')) { $('reglages').open = true; statut('Indique d\'abord l\'adresse et le mot de passe de ta page Transfert, dans les réglages en bas.', 'err'); return; }
       var aFaire = videos.filter(function (v) { return v.etat !== 'fini'; });
       if (!aFaire.length) { statut(videos.length ? 'Ces vidéos sont déjà envoyées.' : 'Choisis d\'abord une vidéo.', 'err'); return; }
+      var avecMail = $('v_mail_oui').checked;
+      if (avecMail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test($('v_mail').value.trim())) { statut('Indique ton adresse mail, ou décoche « M\'envoyer aussi le lien par mail ».', 'err'); return; }
       envoiEnCours = true; $('v_envoyer').disabled = $('v_fichiers').disabled = true;
+      $('v_resultat').hidden = true;
       statut('Envoi en cours… Garde la page ouverte.');
+      afficherVideos();
       var verrou = null;   // l'écran reste allumé pendant l'envoi
       try { if (navigator.wakeLock) navigator.wakeLock.request('screen').then(function (w) { verrou = w; }, function () {}); } catch (e) {}
-      var note = $('v_note').value.trim(), echecs = 0, derniere = null;
-      aFaire.reduce(function (suite, v) {
-        return suite.then(function () {
-          return envoyerVideo(v, note).catch(function (e) { v.etat = 'erreur'; echecs++; derniere = e; majVideo(v); });
-        });
-      }, Promise.resolve()).then(function () {
+      var note = $('v_note').value.trim(), total = aFaire.reduce(function (s, v) { return s + v.fichier.size; }, 0), derniere = null;
+      tApi('/api/envoi', 'POST', { taille: total }).then(function (info) {
+        if (info.apres > info.quota && !confirm('Avec ces vidéos, ' + taille(info.apres) + ' seront stockés sur Transfert, au-delà des 10 Go gratuits (quelques centimes au pire). Continuer ?')) throw new Error('annulé');
+        return aFaire.reduce(function (suite, v, k) {
+          return suite.then(function () {
+            return (k === 0 ? Promise.resolve(info) : tApi('/api/envoi', 'POST', { taille: 0 }))
+              .then(function (e) { return envoyerVideo(v, e.id, info.tailleMorceau || 50 * 1024 * 1024, note); })
+              .catch(function (e) { v.etat = 'erreur'; v.erreur = e.message; derniere = e; majVideo(v); if (e.status === 401) throw e; });
+          });
+        }, Promise.resolve());
+      }).catch(function (e) { derniere = e; aFaire.forEach(function (v) { if (v.etat !== 'fini') { v.etat = 'erreur'; v.erreur = v.erreur || e.message; } }); }).then(function () {
         envoiEnCours = false; $('v_envoyer').disabled = $('v_fichiers').disabled = false;
         try { if (verrou) verrou.release(); } catch (e) {}
-        var ok = aFaire.length - echecs;
         afficherVideos();
-        if (!echecs) {
-          $('v_note').value = '';
-          statut((ok > 1 ? ok + ' vidéos envoyées' : 'Vidéo envoyée') + ' ✓ Elle' + (ok > 1 ? 's t\'attendent' : ' t\'attend') + ' sur ton PC : « 🎬 Charger les vidéos en attente ».', 'ok');
-        } else if (derniere && derniere.status === 401) statut('Clé d\'accès refusée : vérifie-la dans les réglages.', 'err');
-        else if (derniere && (derniere.status === 403 || derniere.status === 404)) statut('Dépôt introuvable ou clé sans droit d\'écriture sur ce dépôt.', 'err');
-        else statut((ok ? ok + ' envoyée(s), ' : '') + echecs + ' pas envoyée(s) (connexion coupée ?). Retouche « Envoyer » : ça reprend où ça s\'est arrêté.', 'err');
+        var finies = aFaire.filter(function (v) { return v.etat === 'fini'; }), echecs = aFaire.length - finies.length;
+        var lienMail = afficherResultat(finies, note);
+        if (finies.length) {
+          if (!echecs) $('v_note').value = '';
+          if (avecMail && lienMail) { try { location.href = lienMail.href; } catch (e) {} }
+        }
+        if (!echecs) statut((finies.length > 1 ? finies.length + ' vidéos envoyées ✓ Elles t\'attendent' : 'Vidéo envoyée ✓ Elle t\'attend') + ' sur Transfert : « 📥 Charger les vidéos en attente » sur le PC.', 'ok');
+        else if (derniere && derniere.status === 401) { $('reglages').open = true; statut('Mot de passe Transfert refusé : vérifie-le dans les réglages.', 'err'); }
+        else if (derniere && derniere.status === 0 && !finies.length) statut('Transfert ne répond pas : vérifie l\'adresse dans les réglages, ou la connexion.', 'err');
+        else statut((finies.length ? finies.length + ' envoyée(s), ' : '') + echecs + ' pas envoyée(s). Retouche « Envoyer » pour réessayer.', 'err');
       });
-    });
-    $('v_mail').addEventListener('click', function () {
-      var fichiers = videos.map(function (v) { return v.fichier; });
-      if (!fichiers.length) { statut('Choisis d\'abord une vidéo.', 'err'); return; }
-      var note = $('v_note').value.trim(), titre = note || (fichiers.length > 1 ? fichiers.length + ' vidéos' : fichiers[0].name);
-      if (!navigator.canShare || !navigator.canShare({ files: fichiers })) {
-        statut('Ce navigateur ne sait pas partager de vidéo : ouvre la page dans Chrome ou Safari.', 'err'); return;
-      }
-      navigator.share({ files: fichiers, title: titre, text: note }).then(function () {
-        statut('Partage ouvert ✓ Envoie-le-toi depuis l\'appli de mail.', 'ok');
-      }, function (e) { if (e && e.name !== 'AbortError') statut('Le partage n\'a pas pu s\'ouvrir.', 'err'); });
     });
   }
 
